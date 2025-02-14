@@ -1,0 +1,2 @@
+/var/spool/slurmd/job93212/slurm_script: line 12: cd: /w/284/murdock/lora-merge: No such file or directory
+slurmstepd: error: *** JOB 93212 ON gpunode6 CANCELLED AT 2025-02-13T22:27:13 ***

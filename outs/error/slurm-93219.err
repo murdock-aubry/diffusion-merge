@@ -1,0 +1,29 @@
+Loading pipeline components...:   0%|          | 0/7 [00:00<?, ?it/s]Loading pipeline components...:  29%|██▊       | 2/7 [00:00<00:00, 17.03it/s]Loading pipeline components...:  57%|█████▋    | 4/7 [00:01<00:01,  2.16it/s]Loading pipeline components...:  71%|███████▏  | 5/7 [00:02<00:01,  1.93it/s]Loading pipeline components...:  86%|████████▌ | 6/7 [00:07<00:02,  2.03s/it]Loading pipeline components...: 100%|██████████| 7/7 [00:26<00:00,  6.89s/it]Loading pipeline components...: 100%|██████████| 7/7 [00:26<00:00,  3.74s/it]
+Loading pipeline components...:   0%|          | 0/7 [00:00<?, ?it/s]Loading pipeline components...:  29%|██▊       | 2/7 [00:00<00:00, 19.96it/s]Loading pipeline components...:  57%|█████▋    | 4/7 [00:00<00:00,  4.13it/s]Loading pipeline components...:  71%|███████▏  | 5/7 [00:01<00:00,  3.33it/s]Loading pipeline components...:  86%|████████▌ | 6/7 [00:04<00:01,  1.04s/it]Loading pipeline components...: 100%|██████████| 7/7 [00:13<00:00,  3.60s/it]Loading pipeline components...: 100%|██████████| 7/7 [00:13<00:00,  1.96s/it]
+Traceback (most recent call last):
+  File "/w/284/murdock/merge/unet-merge.py", line 23, in <module>
+    ).to("cuda")
+      ^^^^^^^^^^
+  File "/w/246/murdock/miniconda3/envs/diff-merge/lib/python3.12/site-packages/diffusers/pipelines/pipeline_utils.py", line 461, in to
+    module.to(device, dtype)
+  File "/w/246/murdock/miniconda3/envs/diff-merge/lib/python3.12/site-packages/diffusers/models/modeling_utils.py", line 1077, in to
+    return super().to(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/w/246/murdock/miniconda3/envs/diff-merge/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1343, in to
+    return self._apply(convert)
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/w/246/murdock/miniconda3/envs/diff-merge/lib/python3.12/site-packages/torch/nn/modules/module.py", line 903, in _apply
+    module._apply(fn)
+  File "/w/246/murdock/miniconda3/envs/diff-merge/lib/python3.12/site-packages/torch/nn/modules/module.py", line 903, in _apply
+    module._apply(fn)
+  File "/w/246/murdock/miniconda3/envs/diff-merge/lib/python3.12/site-packages/torch/nn/modules/module.py", line 903, in _apply
+    module._apply(fn)
+  [Previous line repeated 5 more times]
+  File "/w/246/murdock/miniconda3/envs/diff-merge/lib/python3.12/site-packages/torch/nn/modules/module.py", line 930, in _apply
+    param_applied = fn(param)
+                    ^^^^^^^^^
+  File "/w/246/murdock/miniconda3/envs/diff-merge/lib/python3.12/site-packages/torch/nn/modules/module.py", line 1329, in convert
+    return t.to(
+           ^^^^^
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 20.00 MiB. GPU 0 has a total capacity of 11.65 GiB of which 17.94 MiB is free. Including non-PyTorch memory, this process has 11.62 GiB memory in use. Of the allocated memory 11.11 GiB is allocated by PyTorch, and 435.48 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+srun: error: gpunode28: task 0: Exited with exit code 1
