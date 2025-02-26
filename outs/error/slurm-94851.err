@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "/w/284/murdock/merge/benchmark.py", line 2, in <module>
+srun: error: gpunode2: task 0: Exited with exit code 1
+    from diffusers import StableDiffusionXLPipeline
+ModuleNotFoundError: No module named 'diffusers'

@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --partition=gpunodes
 #SBATCH --cpus-per-task=4
-#SBATCH --mem=16G
+#SBATCH --mem=64G
 #SBATCH --gres=gpu:1
 #SBATCH --time=60
 #SBATCH --job-name=merge-diff
@@ -11,4 +11,4 @@
 
 cd /w/284/murdock/merge
 
-srun python unet-merge.py 88
+srun python benchmark.py
