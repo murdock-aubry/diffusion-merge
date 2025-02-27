@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --partition=gpunodes
 #SBATCH --cpus-per-task=4
-#SBATCH --mem=64G
+#SBATCH --mem=100G
 #SBATCH --gres=gpu:1
 #SBATCH --time=60
 #SBATCH --job-name=merge-diff
@@ -11,4 +11,4 @@
 
 cd /w/284/murdock/merge
 
-srun python benchmark.py
+srun python bench-script.py --model_names sdxl1 --num-prompts 20

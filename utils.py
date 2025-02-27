@@ -32,17 +32,37 @@ def manual_set_adapters(pipeline, adapter_names, adapter_weights=None):
 
 
 
-def merge_unets(unet1, unet2, weight1=0.5, weight2=0.5):
+def merge_unets(unets, weights):
     """
-    Merges two U-Net models by averaging their weights according to given contributions.
+    Merges multiple U-Net models by combining their weights according to given weights.
+    
+    Args:
+        unets (list): List of U-Net models to merge
+        weights (list): List of corresponding weights for each model
+        
+    Returns:
+        The merged U-Net model
     """
-    if weight1 + weight2 == 0:
-        raise ValueError("Sum of weights must be nonzero.")
-
-
-    merged_unet = unet1
+    if len(unets) != len(weights):
+        raise ValueError("Number of models must match number of weights.")
+    
+    if abs(sum(weights) - 1.0) > 1e-6:
+        raise ValueError("Sum of weights must be 1.")
+    
+    if len(unets) == 0:
+        raise ValueError("At least one model must be provided.")
+    
+    # Create a copy of the first model to store the merged result
+    merged_unet = unets[0]
+    
     with torch.no_grad():
-        for param1, param2 in zip(unet1.parameters(), unet2.parameters()):
-            param1.data = weight1 * param1.data + weight2 * param2.data
+        # Initialize parameters with zeros
+        for param in merged_unet.parameters():
+            param.data.zero_()
+        
+        # Add weighted parameters from each model
+        for unet, weight in zip(unets, weights):
+            for merged_param, model_param in zip(merged_unet.parameters(), unet.parameters()):
+                merged_param.data += weight * model_param.data
     
     return merged_unet
