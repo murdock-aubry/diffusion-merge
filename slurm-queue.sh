@@ -11,4 +11,4 @@
 
 cd /w/284/murdock/merge
 
-srun python bench-script.py --model_names sdxl1 --num-prompts 20
+srun python get_representations.py 
