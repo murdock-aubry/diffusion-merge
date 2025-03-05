@@ -2,3 +2,5 @@
 /outputs/
 slurm-queue.sh
 /hidden_reps/
+*.gif
+*.png

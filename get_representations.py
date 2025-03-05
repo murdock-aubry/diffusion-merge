@@ -56,7 +56,6 @@ def extract_hidden_reps(pipe, prompt, num_steps=50, output_dir="hidden_reps", mo
 
     return input_paths, output_paths
 
-# Example usage:
 if __name__ == "__main__":
 
     # model_name = "stabilityai/stable-diffusion-xl-base-1.0"
