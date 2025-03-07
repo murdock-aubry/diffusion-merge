@@ -9,13 +9,9 @@ import numpy as np
 model1 = "stabilityai/stable-diffusion-xl-base-1.0"
 model2 = "cyberagent/opencole-stable-diffusion-xl-base-1.0-finetune"
 
-
 mean_diffs = []
 
-
-
 for itime in range(0, 50):
-
 
     representations1 = torch.load(f"hidden_reps/{model1}/input_t{itime}.pt").flatten(1).transpose(0, 1)
     representations2 = torch.load(f"hidden_reps/{model2}/input_t{itime}.pt").flatten(1).transpose(0, 1)
@@ -46,13 +42,6 @@ for itime in range(0, 50):
     # Compute optimal transport using Sinkhorn algorithm
     print("Computing Sinkhorn transport plan...")
     pi = ot.sinkhorn(a, b, M, reg)
-
-    print(pi.shape)
-
-    
-
-    quit()
-
 
     diff = torch.mean(torch.abs(representations1 - representations2) / torch.mean(abs(representations1)))
 

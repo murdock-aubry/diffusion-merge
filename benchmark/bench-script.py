@@ -10,6 +10,7 @@ from PIL import Image
 import shutil
 import tempfile
 import os 
+import gc
 
 
 torch.manual_seed(42)
@@ -49,31 +50,58 @@ metric_names = ["clip"]
 
 
 num_images_per_prompt = 1
-num_prompts = 20
+# num_prompts = 20
 
 unets = []
 
 model_name_merged = ""
 
-# Load all models
+gc.collect()
+torch.cuda.empty_cache()
+
 if len(model_names) > 1:
     for imodel, model_name in enumerate(model_names):
+        print(imodel, model_name)
         model_ckpt = models[model_name]
-        pipeline = StableDiffusionXLPipeline.from_pretrained(model_ckpt, torch_dtype=torch.float16).to("cuda")
-        unet = pipeline.unet 
+        pipeline = StableDiffusionXLPipeline.from_pretrained(
+            model_ckpt, 
+            torch_dtype=torch.float16
+        ).to("cuda")
+        unet = pipeline.unet.to("cpu")  # Offload U-Net to CPU
         model_name_merged += f"{model_name}_{weights[imodel]}_"
         unets.append(unet)
 
-    model_name = model_name_merged[-1]
+        # Delete pipeline after extracting U-Net
+        del pipeline
+        torch.cuda.empty_cache()
 
-    merged_unet = merge_unets(unets, weights)
-    pipeline.unet = merged_unet
+    model_name = model_name_merged[:-1]  # Remove trailing underscore
+    
+    pipeline = StableDiffusionXLPipeline.from_pretrained(model_ckpt, torch_dtype=torch.float16).to("cuda")
+    pipeline.unet = merge_unets(unets, weights)
+
+    # merged_unet = merge_unets(unets, weights)
+
+
+    # Free individual U-Nets
+    del unets
+    gc.collect()
+    torch.cuda.empty_cache()
+
+    # Assign merged U-Net
+    
 
 else:
     model_name = model_names[0]
     model_ckpt = models[model_name]
     pipeline = StableDiffusionXLPipeline.from_pretrained(model_ckpt, torch_dtype=torch.float16).to("cuda")
-    
+
+# Final cleanup
+gc.collect()
+torch.cuda.empty_cache()
+
+
+pipeline = pipeline.to("cuda")
 
 
 clip_name = "openai/clip-vit-base-patch16"
@@ -118,8 +146,13 @@ for data_name, data_link in datasets.items():
         clips += calculate_clip_score(image_tensor, prompt, model_name=clip_name) / num_prompts
         ir += calculate_ir_score(temp_image_path, prompt) / num_prompts
 
+
+
         # Clean up
         shutil.rmtree(temp_dir)
+
+        gc.collect()
+        torch.cuda.empty_cache()
 
     metrics[model_name][data_name]["nprompts"] = num_prompts
     metrics[model_name][data_name]["clip"] = clips

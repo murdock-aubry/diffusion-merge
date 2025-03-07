@@ -1,6 +1,9 @@
-/outs/
-/outputs/
+outs/
+outputs/
 slurm-queue.sh
 /hidden_reps/
 *.gif
+__pycache__/
 *.png
+*.out
+*.err
