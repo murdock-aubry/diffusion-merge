@@ -15,7 +15,6 @@ def load_model(model_ckpt="stabilityai/stable-diffusion-xl-base-1.0"):
 def get_prompts(source="fixed", num_samples=5):
     """Retrieve prompts from a dataset or use fixed ones."""
 
-
     if source == "fixed":
         return [
         "a corgi",

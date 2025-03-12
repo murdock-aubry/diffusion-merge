@@ -1,5 +1,0 @@
-Traceback (most recent call last):
-  File "/w/284/murdock/merge/benchmark.py", line 8, in <module>
-    from torchmetrics.image.inception_score import InceptionScore
-ModuleNotFoundError: No module named 'torchmetrics.image.inception_score'
-srun: error: gpunode7: task 0: Exited with exit code 1
