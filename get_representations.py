@@ -129,7 +129,7 @@ if __name__ == "__main__":
         # Process only unique prompts and append to .pt file
         for iprompt, prompt in enumerate(unique_dataset):
             # Extract hidden representations
-            inputs, outputs = extract_hidden_reps(pipe, prompt, num_steps = 20, model_name=model_name)
+            inputs, outputs = extract_hidden_reps(pipe, prompt, num_steps = 50, model_name=model_name)
             
             # Append new data
             data["prompts"].append(prompt)
