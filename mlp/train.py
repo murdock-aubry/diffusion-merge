@@ -4,7 +4,7 @@ import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 import numpy as np
 import matplotlib.pyplot as plt
-from time_conditioned_mlp import TimeConditionedMLP  # Import the model we created earlier
+from models import TimeConditionedMLP  # Import the model we created earlier
 
 class TimeConditionedDataset(Dataset):
     """
@@ -147,7 +147,7 @@ def train_model(
     
     return model, history
 
-def plot_training_history(history):
+def plot_training_history(history, filename = "training_history"):
     """
     Plot training and validation loss curves.
     """
@@ -162,7 +162,7 @@ def plot_training_history(history):
     plt.title('Training and Validation Loss')
     plt.legend()
     plt.grid(True)
-    plt.savefig('training_history.png')
+    plt.savefig(f'{filename}.png')
     plt.show()
 
 def evaluate_model(model, test_loader, device="cuda" if torch.cuda.is_available() else "cpu"):
@@ -212,11 +212,47 @@ def evaluate_model(model, test_loader, device="cuda" if torch.cuda.is_available(
 # Example usage
 if __name__ == "__main__":
     # Parameters
-    feature_dim = 16  # Number of features (N)
+
+    feature_dim = 819 # 409, 819, 1638, 2457
+
+    model_name1 = "sd1.4-dogtuned"
+    model_name2 = "sd1.4"
+
+
+
+
+    data_name1 = f"encoded_data_{feature_dim}.pt"
+    data_path1 = f"/w/383/murdock/encoded_reps/{model_name1}/{data_name1}"
+    data1 = torch.load(data_path1)
+    input_features = data1["encoded_data"]
+    times1 = data1["time_steps"]
+
+
+    data_name2 = f"encoded_data_{feature_dim}.pt"
+    data_path2 = f"/w/383/murdock/encoded_reps/{model_name2}/{data_name2}"
+    data2 = torch.load(data_path2)
+    output_features = data2["encoded_data"]
+    times2 = data2["time_steps"]
+
+
+    feature_dim = data1["latent_dim"]
+    num_samples = input_features.shape[0]
+
+    if feature_dim != data2["latent_dim"]:
+        print("Feature dimensions do not align.")
+
+    if num_samples != output_features.shape[0]:
+        print("Mismatched number of paired data samples.")
+
+    if not torch.all(times1 == times2):
+        print("Mismatched data sample pairs.")
+    else:
+        times = times1
+
     batch_size = 32
-    hidden_dims = [128, 256, 128]
+    hidden_dims = [512, 256, 512]
     time_embed_dim = 64
-    num_samples = 1000
+
     train_ratio = 0.7
     val_ratio = 0.15
     # test_ratio will be 0.15
@@ -225,22 +261,10 @@ if __name__ == "__main__":
     # In practice, replace this with your actual data loading code
     np.random.seed(42)
     torch.manual_seed(42)
+
+
     
-    # Create synthetic dataset
-    times = torch.linspace(0, 1, num_samples)
-    
-    # Example synthetic function: features evolve based on time
-    # Replace this with your actual data
-    input_features = torch.randn(num_samples, feature_dim)
-    
-    # Create time-dependent output (example transformation)
-    # In a real scenario, this would be your ground truth data
-    output_features = torch.zeros_like(input_features)
-    for i, t in enumerate(times):
-        factor = 1 + t.item() * 0.5  # Time-dependent factor
-        noise = 0.1 * torch.randn_like(input_features[i])
-        output_features[i] = factor * input_features[i] + noise
-    
+
     # Split data
     train_size = int(train_ratio * num_samples)
     val_size = int(val_ratio * num_samples)
@@ -251,13 +275,14 @@ if __name__ == "__main__":
     train_times = times[:train_size]
     
     val_inputs = input_features[train_size:train_size+val_size]
-    val_outputs = output_features[train_size:train_size+val_size]
+    val_outputs = output_features[train_size:train_size+val_size] 
     val_times = times[train_size:train_size+val_size]
     
     test_inputs = input_features[train_size+val_size:]
     test_outputs = output_features[train_size+val_size:]
     test_times = times[train_size+val_size:]
-    
+
+
     # Create datasets
     train_dataset = TimeConditionedDataset(train_inputs, train_outputs, train_times)
     val_dataset = TimeConditionedDataset(val_inputs, val_outputs, val_times)
@@ -275,6 +300,9 @@ if __name__ == "__main__":
         time_embed_dim=time_embed_dim,
         dropout=0.1
     )
+
+    model_name_save = f"{model_name1}_to_{model_name2}_dim{feature_dim}"
+
     
     # Train model
     trained_model, history = train_model(
@@ -284,11 +312,11 @@ if __name__ == "__main__":
         epochs=100,
         lr=1e-3,
         weight_decay=1e-5,
-        save_path="best_time_conditioned_mlp.pt"
+        save_path=f"/w/383/murdock/models/mlp/{model_name_save}.pt"
     )
     
     # Plot training history
-    plot_training_history(history)
+    plot_training_history(history, filename = model_name_save)
     
     # Evaluate model
     results = evaluate_model(trained_model, test_loader)

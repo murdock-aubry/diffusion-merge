@@ -4,10 +4,6 @@ from diffusers import StableDiffusionXLPipeline, DiffusionPipeline
 from datasets import load_dataset
 import json 
 import random
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload
 import io
 from utils import *
 
@@ -87,17 +83,19 @@ if __name__ == "__main__":
 
     config = load_json_file("config.json")
 
-    # model_name_read = "sd1.4-dogtuned"
+    model_name_read = "sd1.4-dogtuned"
     # model_name_read = "sd1.4-cocotuned"
-    model_name_read = "sd1.4"
+    # model_name_read = "sd1.4"
     model_name = config["models"][model_name_read]
+
+    num_steps = 50
     
     data_link = "nateraw/parti-prompts"
     num_samples = -1
     dataset = get_prompts(source=data_link, num_samples=num_samples)
 
     # File to save data
-    output_file = f"/w/383/murdock/hidden_reps/{model_name_read}/representations.pt"
+    output_file = f"/w/383/murdock/hidden_reps/{model_name_read}/representations_{num_steps}.pt"
 
     # Load existing data if it exists, otherwise initialize
     if os.path.exists(output_file):
@@ -129,7 +127,7 @@ if __name__ == "__main__":
         # Process only unique prompts and append to .pt file
         for iprompt, prompt in enumerate(unique_dataset):
             # Extract hidden representations
-            inputs, outputs = extract_hidden_reps(pipe, prompt, num_steps = 50, model_name=model_name)
+            inputs, outputs = extract_hidden_reps(pipe, prompt, num_steps = num_steps, model_name=model_name)
             
             # Append new data
             data["prompts"].append(prompt)
