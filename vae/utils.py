@@ -21,8 +21,6 @@ def load_data(file_path, batch_size = 32, split=0.8, layers = [], shuffle = True
     torch.manual_seed(42)
 
 
-
-    
     # Keep all layers (time steps) as part of the data
     # Each sample will now have shape [n_layers, channels, height, width]
     original_shape = data.shape
@@ -80,6 +78,7 @@ def load_data(file_path, batch_size = 32, split=0.8, layers = [], shuffle = True
 
 def vae_loss(x, x_recon, mu, logvar, beta):
     recon_loss = nn.functional.mse_loss(x_recon, x, reduction='mean')
+    
     kl_loss = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
 
     ssim_loss = 1 - ssim(torch.clamp(x, 0, 1), torch.clamp(x_recon, 0, 1), data_range=1.0)  # SSIM returns similarity, so we minimize (1 - SSIM)

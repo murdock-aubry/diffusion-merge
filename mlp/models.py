@@ -77,6 +77,8 @@ class TimeConditionedMLP(nn.Module):
             Output features [batch_size, feature_dim]
         """
         # Embed time
+
+
         time_embed = self.time_embed(time)
         
         # Project input

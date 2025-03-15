@@ -5,9 +5,11 @@ from torch.utils.data import DataLoader, TensorDataset
 import matplotlib.pyplot as plt
 
 class TimeConditionedVAE(nn.Module):
-    def __init__(self, latent_dim, time_embedding_dim=32):
+    def __init__(self, latent_dim, time_embedding_dim=32, device="cuda"):
         super().__init__()
         self.time_embedding_dim = time_embedding_dim
+
+
         
         # Time embedding network
         self.time_embed = nn.Sequential(
@@ -47,9 +49,18 @@ class TimeConditionedVAE(nn.Module):
             nn.Tanh()  # Output range [-1, 1] to match normalized input
         )
 
+        self.device = device
+
     def encode_time(self, t):
         # Convert time to [batch_size, 1] shape and embed it
-        t = t.unsqueeze(1)
+        
+        if len(t.shape) == 0:  # If t is a scalar tensor
+            t = t.unsqueeze(0).unsqueeze(1)  # Add batch dimension [1]
+        else:  # If t is [batch_size] 
+            t = t.unsqueeze(1)  # Make it [batch_size, 1]
+
+        t = t.to(self.device)
+                
         return self.time_embed(t)
         
     def reparameterize(self, mu, logvar):

@@ -1,6 +1,6 @@
 import torch
 from diffusers import StableDiffusionPipeline
-from surrogate.models import SurrogateDiffusionModel
+from surrogate.models import MergedDiffusionModel
 from vae.vae import TimeConditionedVAE
 from mlp.models import TimeConditionedMLP
 
@@ -43,7 +43,16 @@ if __name__ == "__main__":
     mlp_a_to_b.load_state_dict(mlp_a_to_b_ckpt)
     mlp_b_to_a.load_state_dict(mlp_b_to_a_ckpt)
     
-    surrogate_model = SurrogateDiffusionModel(
+    # surrogate_model = SurrogateDiffusionModel(
+    #     "CompVis/stable-diffusion-v1-4",
+    #     "frknayk/dreambooth_training",
+    #     vae_a,
+    #     vae_b,
+    #     mlp_a_to_b,
+    #     mlp_b_to_a
+    # )
+
+    merged_model = MergedDiffusionModel(
         "CompVis/stable-diffusion-v1-4",
         "frknayk/dreambooth_training",
         vae_a,
@@ -51,13 +60,14 @@ if __name__ == "__main__":
         mlp_a_to_b,
         mlp_b_to_a
     )
+    
 
     print("Surrogate model constructed")
 
-    images = surrogate_model(
+    images = merged_model(
         prompt="a photo of an astronaut riding a horse on mars",
         guidance_scale=7.5,
         num_inference_steps=50
     )
     
-    images[0].save("surrogate_diffusion_output.png")
+    images[0].save("merged_diffusion_output.png")
