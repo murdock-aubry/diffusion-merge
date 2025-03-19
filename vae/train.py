@@ -8,10 +8,10 @@ from utils import *
 
 BATCH_SIZE = 32
 LR = 1e-4
-EPOCHS = 100
+EPOCHS = 30
 BETA_START = 0.0
-BETA_END = 0.1
-BETA_STEPS = 100
+BETA_END = 0.03
+BETA_STEPS = 30
 
 model_name = "sd1.4"
 # model_name = "sd1.4-cocotuned"
@@ -44,6 +44,7 @@ train_losses = []
 test_losses = []
 recon_losses = []
 kl_losses = []
+ssim_losses = []
 
 print("Starting training...", flush=True)
 for epoch in range(EPOCHS):
@@ -51,7 +52,9 @@ for epoch in range(EPOCHS):
     epoch_loss = 0
     epoch_recon_loss = 0
     epoch_kl_loss = 0
+    epoch_ssim_loss = 0
     num_batches = 0
+    time_scaled = False
     
     # Get current beta value
     current_beta = get_beta(epoch, beta_start = BETA_START, beta_end = BETA_END, beta_steps = BETA_STEPS)
@@ -61,7 +64,7 @@ for epoch in range(EPOCHS):
         t_batch = t_batch.to(device).float()
         
         x_recon, mu, logvar = vae(x_batch, t_batch)
-        recon_loss, kl_loss, loss = vae_loss(x_batch, x_recon, mu, logvar, current_beta)
+        recon_loss, kl_loss, ssim_loss, loss = vae_loss(x_batch, x_recon, t_batch, mu, logvar, current_beta, time_scaled = time_scaled)
         
         optimizer.zero_grad()
         loss.backward()
@@ -70,6 +73,7 @@ for epoch in range(EPOCHS):
         epoch_loss += loss.item()
         epoch_recon_loss += recon_loss.item()
         epoch_kl_loss += kl_loss.item()
+        epoch_ssim_loss += ssim_loss.item()
         num_batches += 1
     
     # Evaluate on test set
@@ -82,7 +86,7 @@ for epoch in range(EPOCHS):
             t_batch = t_batch.to(device).float()
             
             x_recon, mu, logvar = vae(x_batch, t_batch)
-            _, _, loss = vae_loss(x_batch, x_recon, mu, logvar, current_beta)
+            _, _, _, loss = vae_loss(x_batch, x_recon, t_batch, mu, logvar, current_beta, time_scaled = time_scaled)
             test_loss += loss.item()
             test_batches += 1
     
@@ -90,6 +94,7 @@ for epoch in range(EPOCHS):
     avg_train_loss = epoch_loss / num_batches
     avg_recon_loss = epoch_recon_loss / num_batches
     avg_kl_loss = epoch_kl_loss / num_batches
+    avg_ssim_loss = epoch_ssim_loss / num_batches
     avg_test_loss = test_loss / test_batches
     
     # Track losses
@@ -97,9 +102,10 @@ for epoch in range(EPOCHS):
     test_losses.append(avg_test_loss)
     recon_losses.append(avg_recon_loss)
     kl_losses.append(avg_kl_loss)
+    ssim_losses.append(avg_ssim_loss)
     
     # Print progress
-    print(f"Epoch {epoch+1}/{EPOCHS}, Beta: {current_beta:.3f}, Train Loss: {avg_train_loss:.4f} (Recon: {avg_recon_loss:.4f}, KL: {avg_kl_loss:.4f}), Test Loss: {avg_test_loss:.4f}", flush=True)
+    print(f"Epoch {epoch+1}/{EPOCHS}, Beta: {current_beta:.3f}, Train Loss: {avg_train_loss:.4f} (Recon: {avg_recon_loss:.4f}, KL: {avg_kl_loss:.4f}, SSIM: {avg_ssim_loss:.4f}), Test Loss: {avg_test_loss:.4f}", flush=True)
     
     # Optional: Save model periodically
     if (epoch + 1) % 50 == 0:
@@ -129,12 +135,13 @@ plt.title(f'Time-Conditioned VAE Training (Latent Dim: {LATENT_DIM}, Compression
 plt.subplot(2, 1, 2)
 plt.plot(recon_losses, label='Reconstruction Loss')
 plt.plot(kl_losses, label='KL Divergence')
+plt.plot(ssim_losses, label='KL Divergence')
 plt.xlabel('Epoch')
 plt.ylabel('Component Loss')
 plt.legend()
 
 plt.tight_layout()
-plt.savefig(f"/w/284/murdock/merge/vae/plots/{model_name}_dim{LATENT_DIM}_time_conditioned_loss.png")
+plt.savefig(f"/w/284/murdock/merge/vae/plots/{model_name}_dim{LATENT_DIM}_epoch{EPOCHS}_time_conditioned_loss.png")
 plt.close()
 
 

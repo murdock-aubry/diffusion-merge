@@ -76,14 +76,40 @@ def load_data(file_path, batch_size = 32, split=0.8, layers = [], shuffle = True
     
     return train_loader, test_loader, (mean, std), num_layers
 
-def vae_loss(x, x_recon, mu, logvar, beta):
-    recon_loss = nn.functional.mse_loss(x_recon, x, reduction='mean')
+def vae_loss(x, x_recon, t_batch, mu, logvar, beta, alpha=0.1, time_scaled=False):
+    # Calculate reconstruction loss (MSE) in a vectorized way
+    recon_loss_per_sample = torch.mean((x_recon - x)**2, dim=list(range(1, len(x.shape))))
     
-    kl_loss = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
-
-    ssim_loss = 1 - ssim(torch.clamp(x, 0, 1), torch.clamp(x_recon, 0, 1), data_range=1.0)  # SSIM returns similarity, so we minimize (1 - SSIM)
-
-    return recon_loss, kl_loss, recon_loss + beta * kl_loss + beta * ssim_loss
+    # Calculate KL divergence in a vectorized way (already efficient)
+    kl_loss_per_sample = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp(), dim=-1)
+    
+    
+    if time_scaled:
+        # For time-scaled version, we need per-sample SSIM
+        # Use batch SSIM if your library supports it
+        x_clamped = torch.clamp(x, 0, 1)
+        x_recon_clamped = torch.clamp(x_recon, 0, 1)
+        
+        # SSIM is tricky to vectorize fully, but we can make it more efficient
+        ssim_losses = torch.zeros(x.shape[0], device=x.device)
+        for i in range(x.shape[0]):
+            ssim_losses[i] = ssim(x_clamped[i:i+1], x_recon_clamped[i:i+1], data_range=1.0)
+        ssim_loss_per_sample = 1 - ssim_losses
+        
+        # Apply time scaling
+        recon_loss = torch.mean(recon_loss_per_sample * t_batch ** 2)
+        kl_loss = torch.mean(kl_loss_per_sample * t_batch ** 2)
+        ssim_loss = torch.mean(ssim_loss_per_sample * t_batch ** 2)
+    else:
+        # For non-time-scaled, use batch calculations
+        recon_loss = torch.mean(recon_loss_per_sample)
+        kl_loss = torch.mean(kl_loss_per_sample)
+        ssim_loss = 1 - ssim(torch.clamp(x, 0, 1), torch.clamp(x_recon, 0, 1), data_range=1.0)
+    
+    # Calculate total loss
+    total_loss = recon_loss + beta * kl_loss + alpha * ssim_loss
+    
+    return recon_loss, kl_loss, ssim_loss, total_loss
 
 
 def get_beta(epoch, beta_start = 0.0, beta_end = 1.0, beta_steps = 100):

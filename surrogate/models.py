@@ -221,6 +221,13 @@ class MergedDiffusionModel:
         # Load model A and extract UNet
         self.model_a = StableDiffusionPipeline.from_pretrained(model1).to(device)
         self.unet_a = self.model_a.unet
+        self.decoder_a = self.model_a.vae.decoder
+        self.scheduler = self.model_a.scheduler
+        self.numpy_to_pil = self.model_a.numpy_to_pil
+        self.vae_scale = self.model_a.vae.config.scaling_factor
+        self.text_encoder = self.model_a.text_encoder
+        self.tokenizer = self.model_a.tokenizer
+        self.vae = self.model_a.vae
         del self.model_a
         torch.cuda.empty_cache()
 
@@ -228,15 +235,8 @@ class MergedDiffusionModel:
         # Load model B and extract UNet
         self.model_b = StableDiffusionPipeline.from_pretrained(model2).to(device)
         self.unet_b = self.model_b.unet
-
         # Use model B's components for generation
         self.decoder_b = self.model_b.vae.decoder
-        self.numpy_to_pil = self.model_b.numpy_to_pil
-        self.vae_scale = self.model_b.vae.config.scaling_factor
-        self.text_encoder = self.model_b.text_encoder
-        self.tokenizer = self.model_b.tokenizer
-        self.scheduler = self.model_b.scheduler
-        self.vae = self.model_b.vae
 
         del self.model_b
         torch.cuda.empty_cache()
@@ -268,8 +268,8 @@ class MergedDiffusionModel:
 
         """Assumption: Latents live in some ambient representation space interpretable by both models"""
 
-        # Run inference with B on the original latent image, obtain plain noise predicted directly from B
-        noise_pred_original = self.unet_b(latent, t, encoder_hidden_states=encoder_hidden_states).sample
+        # Run inference with A on the original latent image, obtain plain noise predicted directly from A
+        noise_pred_original = self.unet_a(latent, t, encoder_hidden_states=encoder_hidden_states).sample
         
         
         t = t.to(self.device)
@@ -283,6 +283,7 @@ class MergedDiffusionModel:
         compressed_a = self.vae_a.reparameterize(mu_a, logvar_a)
 
         # Map encoded latents of A to the encoded space of model B
+        # This is T(X^)
         compressed_b = self.mapping_mlp_a_to_b(compressed_a, t)
 
         # decode the mapped latents using the compressed latents
@@ -343,7 +344,7 @@ class MergedDiffusionModel:
         
         # Initial random latent (using model A's configuration to preserve its semantic space)
         latents = torch.randn(
-            (1, self.unet_b.config.in_channels, height // 8, width // 8),
+            (1, self.unet_a.config.in_channels, height // 8, width // 8),
             device=self.device,
         )
         
@@ -386,7 +387,7 @@ class MergedDiffusionModel:
         
         # Decode the final latents with model A's VAE to stay in A's semantic space
         with torch.no_grad():
-            image = self.decoder_b(latents / self.vae_scale)
+            image = self.decoder_a(latents / self.vae_scale)
         
         # Convert to PIL Image
         image = (image / 2 + 0.5).clamp(0, 1)
