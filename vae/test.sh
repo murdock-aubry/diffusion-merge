@@ -1,5 +1,6 @@
 #!/bin/bash
 #SBATCH --partition=gpunodes
+#SBATCH --nodelist=gpunode5
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=64G
 #SBATCH --gres=gpu:1
