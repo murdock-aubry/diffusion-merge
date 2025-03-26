@@ -6,11 +6,7 @@ import os
 import gc
 import matplotlib.pyplot as plt 
 from diffusers import DiffusionPipeline
-
-def load_json_file(file_path):
-    with open(file_path, 'r') as f:
-        return json.load(f)
-    
+from pltutils import *
 
 def load_unet(path):
     pipeline = DiffusionPipeline.from_pretrained(
@@ -23,80 +19,9 @@ def load_unet(path):
 
     return unet
 
-def manual_set_adapters(pipeline, adapter_names, adapter_weights=None):
-    if isinstance(adapter_names, str):
-        adapter_names = [adapter_names]
-
-    if adapter_weights is None:
-        adapter_weights = [1.0] * len(adapter_names)
-    elif not isinstance(adapter_weights, list):
-        adapter_weights = [adapter_weights] * len(adapter_names)
-
-    if len(adapter_names) != len(adapter_weights):
-        raise ValueError("Number of adapter names must match number of weights.")
-
-    # Iterate through model components that support LoRA (e.g., unet, text_encoder)
-    for component in ["unet", "text_encoder"]:
-
-        # If no component in loaded pipeline, pass
-        if not hasattr(pipeline, component):
-            continue
-        
-        # extract particular component
-        model = getattr(pipeline, component)
-
-        # Apply LoRA weights manually to each adapter's parameters
-        for adapter_name, weight in zip(adapter_names, adapter_weights):
-            for name, param in model.named_parameters():
-                if f"lora_{adapter_name}" in name:  # LoRA layers are usually prefixed with "lora_{adapter}"
-                    param.data *= weight  # Scale adapter weights
-
-
-
-
-def merge_unets(unets, weights):
-    """
-    Merges multiple U-Net models by combining their weights according to given weights.
-    
-    Args:
-        unets (list): List of U-Net models to merge
-        weights (list): List of corresponding weights for each model
-        
-    Returns:
-        The merged U-Net model
-    """
-    if len(unets) != len(weights):
-        raise ValueError("Number of models must match number of weights.")
-    
-    if abs(sum(weights) - 1.0) > 1e-6:
-        raise ValueError("Sum of weights must be 1.")
-    
-    if len(unets) == 0:
-        raise ValueError("At least one model must be provided.")
-    
-    # Create a copy of the first model to store the merged result
-    merged_unet = unets[0]
-    
-    with torch.no_grad():
-        # Initialize parameters with 0.5 their original value
-        for param in merged_unet.parameters():
-            param.data *= weights[0]
-        
-        # Add weighted parameters from each model
-        for unet, weight in zip(unets[1:], weights[1:]):
-
-            for merged_param, model_param in zip(merged_unet.parameters(), unet.parameters()):
-                merged_param.data += weight * model_param.data
-        
-    
-    return merged_unet
-
 
 def get_layer_names(unet):
     return list(dict(unet.named_parameters()).keys())
-
-
-
 
 def get_weights_key(unet, keys = [], not_keys = []):
     """
@@ -121,7 +46,7 @@ def get_weight(weight_name, unet):
     """
         Extracts the weight with a given name of a unet
     """
-    
+
     # Get all named parameters from the unet
     params = dict(unet.named_parameters())
     
@@ -131,72 +56,6 @@ def get_weight(weight_name, unet):
     else:
         raise ValueError(f"Weight '{weight_name}' not found in model parameters")
     
-
-
-
-
-def load_tensors_from_directory(directory):
-    tensors = {}
-    for filename in os.listdir(directory):
-        if filename.endswith('.pt'):
-            tensor_name = filename[:-3]  # Remove the '.pt' extension
-            tensors[tensor_name] = torch.load(os.path.join(directory, filename))
-    return tensors
-
-
-def extract_hidden_reps(pipe, prompt, num_steps=50, output_dir="hidden_reps", model_name = "empty_name"):
-    """
-    Extract UNet hidden representations (inputs and outputs) for each timestep.
-    
-    Args:
-        pipe (StableDiffusionXLPipeline): The pre-loaded SDXL pipeline.
-        prompt (str): The text prompt for inference.
-        num_steps (int): Number of inference steps (default: 50).
-        output_dir (str): Directory to save hidden representations (default: "hidden_reps").
-    
-    Returns:
-        tuple: (list of input file paths, list of output file paths)
-    """
-
-    output_dir += f"/{model_name}"
-
-    # Create output directory
-    os.makedirs(output_dir, exist_ok=True)
-
-    # Lists to store file paths (not tensors, to save memory)
-    input_paths = []
-    output_paths = []
-
-    # Hook to capture UNet input and output
-    def unet_hook_fn(module, input, output):
-        timestep = len(input_paths)
-        input_path = f"{output_dir}/input_t{timestep}.pt"
-        output_path = f"{output_dir}/output_t{timestep}.pt"
-        torch.save(input[0].detach().cpu(), input_path)    # x_t
-        torch.save(output[0].detach().cpu(), output_path)  # epsilon
-        input_paths.append(input_path)
-        output_paths.append(output_path)
-
-    # Register the hook
-    hook_handle = pipe.unet.register_forward_hook(unet_hook_fn)
-
-    # Set a fixed seed for reproducibility
-    generator = torch.Generator(device="cuda").manual_seed(42)
-
-    # Run inference
-    with torch.no_grad():
-        _ = pipe(
-            prompt=prompt,
-            num_inference_steps=num_steps,
-            output_type="latent",
-            generator=generator,
-            num_images_per_prompt=1  # Batch size of 1
-        )
-
-    # Remove the hook
-    hook_handle.remove()
-
-    return input_paths, output_paths
 
 
 def get_filter_samples(filters, random_samples, nsamples):
@@ -237,7 +96,14 @@ def compute_corr_slope_matrices(data, thresh):
     # Compute means and center data
     means = data.mean(dim=1, keepdim=True)
     data -= means  # Modify in-place to save memory
+
+
     
+    # scatter_plot(data[33], data[578], title = "", xlabel = "Filter 1", ylabel = "Filter 2", path_name = "outputs/conv_correlation1.png")
+    
+
+    # 
+
     # Compute variances and standard deviations
     variances = torch.mean(data**2, dim=1, keepdim=True)
     stds = torch.sqrt(variances)
@@ -250,6 +116,18 @@ def compute_corr_slope_matrices(data, thresh):
     # Compute correlation matrix
     std_outer = stds @ stds.t()
     correlation_matrix = covariance_matrix / std_outer
+
+
+    ###### PLOTTING #######
+    # data = data.to("cpu")
+    # data = data.detach().numpy()
+    # for i in range(30):
+    #     for j in range(correlation_matrix.shape[0]):
+    #         if torch.abs(correlation_matrix[i, j]) > 0.75 and torch.abs(correlation_matrix[i, j]) < 0.95 and correlation_matrix[i, j] < 0:
+    #             print(f"({i}, {j}), {correlation_matrix[i, j]}")
+    #             for k in range(j - 100, j + 100):
+    #                 scatter_plot(data[i], data[k], title = "", xlabel = "", ylabel = "", path_name = f"gif/{k}.png")
+
 
     correlation_matrix[torch.abs(correlation_matrix) < thresh] = 0  # Set the entries which are below a reasonable minimal correlation threshold to 0
     non_zero_count = torch.count_nonzero(correlation_matrix)
@@ -352,6 +230,9 @@ def combine_linear_layers(weights, biases, nsamples, device, thresh = 0.7):
 
     coefs = corr_mat / torch.norm(corr_mat, p=1, dim=0, keepdim=True)
     clear_memory(corr_mat)  # Free memory
+
+
+    torch.save(coefs, "/w/383/murdock/other/coefs_mat.pt")
 
     weights = torch.cat([weight.to(device) for weight in weights], dim = 0)
     weight = get_new_weight(weights, coefs)

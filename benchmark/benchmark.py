@@ -24,8 +24,13 @@ def get_prompts(source="fixed", num_samples=5):
         "The saying 'BE EXCELLENT TO EACH OTHER' written on a red brick wall with a graffiti image of a green alien wearing a tuxedo. A yellow fire hydrant is on a sidewalk in the foreground.",
     ]
     else:
+
         dataset = load_dataset(source, split="train").shuffle()
-        return [dataset[i]["Prompt"] for i in range(num_samples)]
+        if num_samples == -1:
+            return [dataset[i]["Prompt"] for i in range(len(dataset))]
+        else:
+            return [dataset[i]["Prompt"] for i in range(num_samples)]
+            
     
     
 

@@ -12,9 +12,81 @@ def parse_model_name(model_name):
         return 1.0  # Base model is equivalent to 1.0
     return None
 
+def plot_model_metrics(json_path, output_path='model_metrics.png'):
+    """
+    Plot model metrics as a grouped bar chart with separate scales and max score lines.
+    
+    Parameters:
+    json_path (str): Path to the JSON file containing metrics
+    output_path (str, optional): Path to save the output PNG file
+    """
+    # Read the JSON file
+    with open(json_path, 'r') as f:
+        data = json.load(f)
+    
+    # Prepare data for plotting
+    models = list(data.keys())
+    clip_scores = [data[model]['parti-prompts']['clip'] for model in models]
+    ir_scores = [data[model]['parti-prompts']['ir'] for model in models]
+    
+    # Calculate max scores
+    max_clip_score = max(clip_scores)
+    max_ir_score = max(ir_scores)
+    
+    # Set up the plot
+    fig, ax1 = plt.subplots(figsize=(14, 7))
+    
+    # Set the width of each bar and positions
+    bar_width = 0.35
+    index = np.arange(len(models))
+    
+    # Plot CLIP scores on the left y-axis
+    color1 = '#3498db'
+    rects1 = ax1.bar(index, clip_scores, bar_width, label='CLIP Score', color=color1, alpha=0.8)
+    ax1.set_xlabel('Models', fontsize=12, fontweight='bold')
+    ax1.set_ylabel('CLIP Score', color=color1, fontsize=12, fontweight='bold')
+    ax1.tick_params(axis='y', labelcolor=color1)
+    ax1.set_xticks(index + bar_width/2)
+    ax1.set_xticklabels(models, rotation=45, ha='right')
+    
+    # Add horizontal dashed line for max CLIP score
+    ax1.axhline(y=max_clip_score, color=color1, linestyle='--', alpha=0.5, 
+                label=f'Max CLIP Score ({max_clip_score:.2f})')
+    
+    # Create a second y-axis for IR scores
+    ax2 = ax1.twinx()
+    color2 = '#e74c3c'
+    rects2 = ax2.bar(index + bar_width, ir_scores, bar_width, label='IR Score', color=color2, alpha=0.8)
+    ax2.set_ylabel('IR Score', color=color2, fontsize=12, fontweight='bold')
+    ax2.tick_params(axis='y', labelcolor=color2)
+    
+    # Add horizontal dashed line for max IR score
+    ax2.axhline(y=max_ir_score, color=color2, linestyle='--', alpha=0.5, 
+                label=f'Max IR Score ({max_ir_score:.2f})')
+    
+    # Title
+    plt.title('Model Performance Metrics', fontsize=14, fontweight='bold')
+    
+    # Combine legends
+    lines1, labels1 = ax1.get_legend_handles_labels()
+    lines2, labels2 = ax2.get_legend_handles_labels()
+    ax2.legend(lines1 + lines2, labels1 + labels2, loc='best')
+    
+    # Adjust layout
+    plt.tight_layout()
+    
+    # Add grid to first axis
+    ax1.grid(axis='y', linestyle='--', alpha=0.7)
+    
+    # Save the plot in high quality
+    plt.savefig(output_path, dpi=400, bbox_inches='tight')
+    
+    # Close the plot to free up memory
+    plt.close()
+
 def main():
     # Load the data (assuming it's saved to a file)
-    with open('/w/284/murdock/merge/metrics.json', 'r') as f:
+    with open('/w/284/murdock/merge/benchmark/metrics.json', 'r') as f:
         data = json.load(f)
     
     # Extract the model proportions and corresponding benchmark values
@@ -69,4 +141,6 @@ def main():
     plt.show()
 
 if __name__ == "__main__":
-    main()
+
+    plot_model_metrics('metrics.json')
+    # main()

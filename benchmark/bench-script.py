@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-from diffusers import StableDiffusionXLPipeline, DiffusionPipeline 
+from diffusers import DiffusionPipeline, UNet2DConditionModel
 from datasets import load_dataset
 import json
 from benchmark import *
@@ -15,99 +15,59 @@ import gc
 
 torch.manual_seed(42)
 
-parser = argparse.ArgumentParser(description="Process some arguments.")
-parser.add_argument("--model_names", type=str, nargs='+', required=True, help="Names of the models.")
-parser.add_argument("--weights", type=float, nargs='+', required=False, default=[1.0], help="Weights for the models as a list of floats.")
-parser.add_argument("--num-prompts", type=int, required=False, default=5, help="Number of prompts to process in dataset.")
-args = parser.parse_args()
+# parser = argparse.ArgumentParser(description="Process some arguments.")
+# parser.add_argument("--model_path", type=str, required=True, help="Path to model ckpt.")
+# parser.add_argument("--num-prompts", type=int, required=False, default=5, help="Number of prompts to process in dataset.")
+# args = parser.parse_args()
 
-model_names = args.model_names
-weights = np.array(args.weights)
-num_prompts = args.num_prompts
+# model_name = args.model_name
+# weight_path = args.weight_path
+num_prompts = 20#args.num_prompts
 
-if len(model_names) != len(weights):
-    raise ValueError("Number of model names must match number of weights.")
-    
-if len(model_names) == 1:
-    weights = [1.0]
+model_path = "/w/383/murdock/models/unets/zipit/"
+# model_name = "sd1.4_sd1.4-cocotuned_thresh0.7"
+model_name = "blank"
+unet_ckpt = model_path + model_name
 
-if np.sum(weights) != 1:
-    raise ValueError("Sum of weights must be 1.")
 
-# Open the configuration file
-with open('config.json', 'r') as file:
-    config = json.load(file)
+base_model_path = "CompVis/stable-diffusion-v1-4"
+
+pipeline = DiffusionPipeline.from_pretrained(
+    base_model_path,
+    torch_dtype=torch.float16,
+    safety_checker=None
+)
+
+device = "cuda" if torch.cuda.is_available() else "cpu"
+pipeline = pipeline.to(device)
+
+
+custom_unet = UNet2DConditionModel.from_pretrained(
+    unet_ckpt,
+    torch_dtype=torch.float16
+).to(device)
+
+pipeline.unet = custom_unet
+
 
 # Open existing metrics
 with open('metrics.json', 'r') as file:
     metrics = json.load(file)
 
-
+with open('../config.json', 'r') as file:
+    config = json.load(file)
 datasets = config["datasets"]
-models = config["models"]
 
-metric_names = ["clip"]
-
-
-num_images_per_prompt = 1
-# num_prompts = 20
-
-unets = []
-
-model_name_merged = ""
 
 gc.collect()
 torch.cuda.empty_cache()
-
-if len(model_names) > 1:
-    for imodel, model_name in enumerate(model_names):
-        print(imodel, model_name)
-        model_ckpt = models[model_name]
-        pipeline = StableDiffusionXLPipeline.from_pretrained(
-            model_ckpt, 
-            torch_dtype=torch.float16
-        ).to("cuda")
-        unet = pipeline.unet.to("cpu")  # Offload U-Net to CPU
-        model_name_merged += f"{model_name}_{weights[imodel]}_"
-        unets.append(unet)
-
-        # Delete pipeline after extracting U-Net
-        del pipeline
-        torch.cuda.empty_cache()
-
-    model_name = model_name_merged[:-1]  # Remove trailing underscore
-    
-    pipeline = StableDiffusionXLPipeline.from_pretrained(model_ckpt, torch_dtype=torch.float16).to("cuda")
-    pipeline.unet = merge_unets(unets, weights)
-
-    # merged_unet = merge_unets(unets, weights)
-
-
-    # Free individual U-Nets
-    del unets
-    gc.collect()
-    torch.cuda.empty_cache()
-
-    # Assign merged U-Net
-    
-
-else:
-    model_name = model_names[0]
-    model_ckpt = models[model_name]
-    pipeline = StableDiffusionXLPipeline.from_pretrained(model_ckpt, torch_dtype=torch.float16).to("cuda")
-
-# Final cleanup
-gc.collect()
-torch.cuda.empty_cache()
-
-
-pipeline = pipeline.to("cuda")
 
 
 clip_name = "openai/clip-vit-base-patch16"
 
 if model_name not in metrics.keys():
     metrics[model_name] = {}
+
 
 for data_name, data_link in datasets.items():
 
@@ -117,6 +77,8 @@ for data_name, data_link in datasets.items():
         metrics[model_name][data_name] = {}
 
     dataset = get_prompts(source = data_link, num_samples = num_prompts)
+
+    num_prompts = len(dataset)
     
     clips = 0
     ir = 0
@@ -129,7 +91,7 @@ for data_name, data_link in datasets.items():
         temp_image_path = os.path.join(temp_dir, "temp_image.png")
 
         # Generate images
-        images = pipeline(prompt, num_images_per_prompt=num_images_per_prompt, output_type="np").images
+        images = pipeline(prompt, num_images_per_prompt=1, output_type="np").images
 
         # Ensure it's a single image, convert data type
         image = images[0]  # Take the first image if it's a batch
@@ -145,8 +107,6 @@ for data_name, data_link in datasets.items():
         # Compute scores
         clips += calculate_clip_score(image_tensor, prompt, model_name=clip_name) / num_prompts
         ir += calculate_ir_score(temp_image_path, prompt) / num_prompts
-
-
 
         # Clean up
         shutil.rmtree(temp_dir)
