@@ -1,204 +1,203 @@
+from diffusers import DiffusionPipeline, UNet2DConditionModel
+from diffusers.optimization import get_cosine_schedule_with_warmup
 import torch
-from torch.utils.data import DataLoader
+from torch.utils.data import Dataset
 from datasets import load_dataset
-from diffusers import DiffusionPipeline, DDIMScheduler
-from transformers import CLIPTokenizer, CLIPTextModel
-from accelerate import Accelerator
-import numpy as np
-from PIL import Image
+from torchvision import transforms
+from tqdm.auto import tqdm
 import os
 import gc
+import numpy as np
+import argparse
+import io
+from PIL import Image
+import base64
 
-def clear_gpu_memory():
-    torch.cuda.empty_cache()
-    torch.cuda.synchronize()
-    gc.collect()
-    torch.cuda.reset_peak_memory_stats()
 
-def release_memory(*args):
-    """Helper function to delete variables and clear memory"""
-    for var in args:
-        if var is not None:
-            del var
-    clear_gpu_memory()
+parser = argparse.ArgumentParser(description="Specify dataset name for finetuning.")
+parser.add_argument("--data_shard", type=str, required=True, help="Name of the dataset to use for finetuning.")
+args = parser.parse_args()
+
+DATASET_SHARD = args.data_shard
+DATASET_NAME = f"output_shards/{DATASET_SHARD}_shard.parquet"
+
 
 # Configuration
-model_id = "CompVis/stable-diffusion-v1-4"
-dataset_name = "reach-vb/pokemon-blip-captions"
-output_dir = "./pokemon_finetuned_model"
-num_train_epochs = 5
-batch_size = 5  # Keep small batch size for memory constraints
-learning_rate = 1e-7
-resolution = 256
-gradient_accumulation_steps = 4  # Increased to help with small batch size
-max_grad_norm = 1.0
+MODEL_NAME = "CompVis/stable-diffusion-v1-4"
+OUTPUT_DIR = f"finetunes/{DATASET_SHARD}"
+BATCH_SIZE = 1  # Reduce batch size
+GRADIENT_ACCUMULATION_STEPS = 2
+LEARNING_RATE = 1e-6
+NUM_EPOCHS = 3
+MIXED_PRECISION = "no"  # Use mixed precision
 
-# Initialize Accelerator with better memory settings
-accelerator = Accelerator(
-    gradient_accumulation_steps=gradient_accumulation_steps,
-    mixed_precision='fp16'  
-)
+# Enhanced memory optimization configuration
+torch.backends.cudnn.benchmark = True  # Optimize GPU performance
+torch.backends.cuda.matmul.allow_tf32 = True  # Enable TF32 for matrix multiplications
+torch.backends.cudnn.allow_tf32 = True
 
-# Load dataset
-dataset = load_dataset(dataset_name, split="train")
+# Set the appropriate dtype
+torch_dtype = torch.float16 if MIXED_PRECISION == "fp16" else torch.float32
 
-# Load models with memory-efficient settings
-tokenizer = CLIPTokenizer.from_pretrained(model_id, subfolder="tokenizer")
-text_encoder = CLIPTextModel.from_pretrained(
-    model_id, 
-    subfolder="text_encoder",
-    torch_dtype=torch.float16,
-    low_cpu_mem_usage=True
-)
+class MemoryEfficientPromptImageDataset(Dataset):
+    def __init__(self, dataset_name, split="train"):
 
-# Load pipeline with memory optimizations
-pipe = DiffusionPipeline.from_pretrained(
-    model_id,
-    torch_dtype=torch.float16,
-    use_safetensors=True,
-    low_cpu_mem_usage=True
-)
-vae = pipe.vae
-unet = pipe.unet
-unet.enable_gradient_checkpointing()  # Critical for memory savings
-scheduler = DDIMScheduler.from_pretrained(model_id, subfolder="scheduler")
+        # loading pre-split shards based on category name
+        self.dataset = load_dataset('parquet', data_files=DATASET_NAME, split = split)
 
-# Optimized preprocessing
-def preprocess(examples):
-    # Tokenize captions
-    inputs = tokenizer(
-        examples["text"],
-        padding="max_length",
-        max_length=tokenizer.model_max_length,
-        truncation=True,
-        return_tensors="pt",
-    )
-    input_ids = inputs.input_ids
-    
-    # Process images with memory efficiency
-    images = []
-    for img_data in examples["image"]:
-        img_array = np.array(img_data, dtype=np.uint8)
-        if img_array.ndim == 2:
-            img_array = np.stack([img_array] * 3, axis=-1)
+
+        self.transform = transforms.Compose([
+            transforms.Resize((512, 512)),  # Consistent image size
+            transforms.ToTensor(),
+            transforms.Normalize([0.5], [0.5]),
+        ])
         
-        # Process directly to tensor with reduced precision
-        image = torch.from_numpy(img_array).float() / 127.5 - 1.0  # [-1, 1] range
-        image = image.permute(2, 0, 1)  # CHW format
-        image = torch.nn.functional.interpolate(
-            image.unsqueeze(0),
-            size=(resolution, resolution),
-            mode="bilinear"
-        ).squeeze(0)
-        images.append(image.half())  # Store as float16
+    def __len__(self):
+        return len(self.dataset)
     
-    pixel_values = torch.stack(images)
-    return {"pixel_values": pixel_values, "input_ids": input_ids}
+    def __getitem__(self, idx):
+        item = self.dataset[idx]
+        
+        image = Image.open(io.BytesIO(item["jpg_0"])).convert("RGB")
+        # Apply transformation
+        image = self.transform(image)
+        prompt = item["caption"] 
 
-dataset.set_transform(preprocess)
-dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+        return {"prompt": prompt, "pixel_values": image}
 
-# Model preparation
-vae.eval()
-text_encoder.eval()
-unet.train()
-
-# Freeze models that shouldn't be trained
-vae.requires_grad_(False)
-text_encoder.requires_grad_(False)
-
-# Prepare with accelerator
-optimizer = torch.optim.Adam(
-    unet.parameters(),
-    lr=1e-6,
-    betas=(0.9, 0.999),  # More conservative than AdamW's defaults
-    eps=1e-8,
-    weight_decay=0
-)
-
-unet, optimizer, dataloader = accelerator.prepare(unet, optimizer, dataloader)
-
-vae = vae.to(accelerator.device)
-text_encoder = text_encoder.to(accelerator.device)
-
-
-
-for epoch in range(num_train_epochs):
-    for step, batch in enumerate(dataloader):
-        with accelerator.accumulate(unet):
-            # Forward pass
-            with torch.no_grad():
-                latents = vae.encode(batch["pixel_values"]).latent_dist.sample()
-                latents = latents * 0.18215
-                text_embeddings = text_encoder(batch["input_ids"])[0]
-            
-            noise = torch.randn_like(latents)
-            timesteps = torch.randint(
-                0, scheduler.config.num_train_timesteps,
-                (latents.shape[0],),
-                device=latents.device
-            ).long()
-            
-            noisy_latents = scheduler.add_noise(latents, noise, timesteps)
-            
-            # Simple fp32 forward pass
-            noise_pred = unet(noisy_latents, timesteps, 
-                            encoder_hidden_states=text_embeddings).sample
-            # noise_pred = 0.1 * noise_pred + 0.9 * noisy_latents 
-
-            loss = torch.nn.functional.mse_loss(
-                noise_pred.float(), 
-                noise.float(), 
-                reduction="none"
-            ).mean([1, 2, 3]).mean() 
-            loss = loss.clamp(max=1e4)
-            
-            # Backward pass
-            accelerator.backward(loss)
-
-            if any(torch.isnan(p.grad).any() for p in unet.parameters() if p.grad is not None):
-                optimizer.zero_grad()
-                continue
-            
-            # Gradient clipping and NaN checks
-            if accelerator.sync_gradients:
-                # Check for NaN/inf in loss
-                if torch.isnan(loss) or torch.isinf(loss):
-                    optimizer.zero_grad()
-                    print("Skipping step due to NaN/inf loss")
-                    continue
-                    
-                # Gradient clipping
-                grad_norm = torch.nn.utils.clip_grad_norm_(
-                    unet.parameters(), 
-                    max_grad_norm
-                )
-                
-                if torch.isnan(grad_norm) or torch.isinf(grad_norm):
-                    optimizer.zero_grad()
-                    print("Skipping step due to NaN/inf gradients")
-                    continue
-            
-            optimizer.step()
-            optimizer.zero_grad(set_to_none=True)
-            
-            # Logging
-            
-            print(f"Epoch: {epoch}, step: {step}, loss: {loss.item():.4f}, "
-                     f"grad_norm: {grad_norm.item() if 'grad_norm' in locals() else 0:.4f}")
-
-# Save the model with memory considerations
-accelerator.wait_for_everyone()
-if accelerator.is_main_process:
-    unet = accelerator.unwrap_model(unet)
-    pipe = StableDiffusionPipeline(
-        vae=vae,
-        text_encoder=text_encoder,
-        tokenizer=tokenizer,
-        unet=unet,
-        scheduler=scheduler,
-        safety_checker=None,  # Disable safety checker to save memory
-        feature_extractor=None,  # Disable feature extractor
+def setup_model_for_training(model_name, torch_dtype):
+    # Load model with aggressive memory saving
+    pipe = DiffusionPipeline.from_pretrained(
+        model_name,
+        torch_dtype=torch_dtype,
+        safety_checker=None,  # Disable safety checker
+        variant="fp16" if torch_dtype == torch.float16 else None
     )
-    pipe.save_pretrained(output_dir, safe_serialization=True)
-    print(f"Model saved to {output_dir}")
+    
+    # Move to GPU with memory optimization
+    pipe = pipe.to("cuda")
+    
+    # Freeze most components
+    pipe.text_encoder.requires_grad_(False)
+    pipe.vae.requires_grad_(False)
+    
+    # More aggressive memory optimization
+    pipe.enable_attention_slicing("max")  # Maximum memory savings
+    pipe.enable_vae_slicing()
+    pipe.unet.enable_gradient_checkpointing()
+    
+    return pipe
+
+def train_model(pipe, train_dataloader, num_epochs):
+    # Optimizer with memory-efficient settings
+    optimizer = torch.optim.AdamW(
+        pipe.unet.parameters(),
+        lr=LEARNING_RATE,
+        betas=(0.9, 0.999),
+        eps=1e-8,
+        weight_decay=1e-6
+    )
+    
+    # Learning rate scheduler
+    lr_scheduler = get_cosine_schedule_with_warmup(
+        optimizer=optimizer,
+        num_warmup_steps=100,
+        num_training_steps=len(train_dataloader) * NUM_EPOCHS
+    )
+    
+    # Training loop with enhanced memory management
+    for epoch in range(num_epochs):
+        pipe.unet.train()
+        progress_bar = tqdm(total=len(train_dataloader), desc=f"Epoch {epoch}")
+        
+        for step, batch in enumerate(train_dataloader):
+            # Use context manager for mixed precision
+            with torch.autocast("cuda", dtype=torch_dtype):
+                # Explicitly manage tensor devices and precision
+                images = batch["pixel_values"].to("cuda", dtype=torch_dtype)
+                prompts = batch["prompt"]
+                
+                # Encode latents with minimal memory
+                with torch.no_grad():
+                    latents = pipe.vae.encode(images).latent_dist.sample() * 0.18215
+                    del images
+                
+                # Tokenize and encode text
+                input_ids = pipe.tokenizer(
+                    prompts,
+                    padding="max_length",
+                    max_length=pipe.tokenizer.model_max_length,
+                    truncation=True,
+                    return_tensors="pt"
+                ).input_ids.to("cuda")
+                
+                with torch.no_grad():
+                    encoder_hidden_states = pipe.text_encoder(input_ids)[0]
+                    del input_ids
+                
+                # Prepare noise and timesteps
+                noise = torch.randn_like(latents)
+                timesteps = torch.randint(
+                    0, pipe.scheduler.num_train_timesteps, 
+                    (latents.shape[0],), 
+                    device=latents.device
+                ).long()
+                
+                # Add noise
+                noisy_latents = pipe.scheduler.add_noise(latents, noise, timesteps)
+                del latents, noise
+                
+                # Predict noise
+                noise_pred = pipe.unet(
+                    noisy_latents,
+                    timesteps,
+                    encoder_hidden_states,
+                    return_dict=False
+                )[0]
+                
+                # Compute loss
+                loss = torch.nn.functional.mse_loss(noise_pred, torch.randn_like(noise_pred))
+                loss = loss / GRADIENT_ACCUMULATION_STEPS
+            
+            # Backward pass with gradient scaling
+            loss.backward()
+
+            print(f"epoch: {epoch}, step: {step}, loss: {loss}")
+            
+            # Gradient clipping and optimization step
+            if (step + 1) % GRADIENT_ACCUMULATION_STEPS == 0:
+                torch.nn.utils.clip_grad_norm_(pipe.unet.parameters(), 1.0)
+                optimizer.step()
+                lr_scheduler.step()
+                optimizer.zero_grad(set_to_none=True)
+            
+            progress_bar.update(1)
+            progress_bar.set_postfix({"loss": loss.item() * GRADIENT_ACCUMULATION_STEPS})
+            
+            # Explicit memory cleanup
+            del loss, noise_pred, noisy_latents, timesteps, encoder_hidden_states
+            torch.cuda.empty_cache()
+        
+    # Save checkpoint
+    pipe.save_pretrained(os.path.join(OUTPUT_DIR, f"epoch-{epoch}"))
+    torch.cuda.empty_cache()
+
+def main():
+    # Prepare dataset
+    train_dataset = MemoryEfficientPromptImageDataset(DATASET_NAME)
+    train_dataloader = torch.utils.data.DataLoader(
+        train_dataset, 
+        batch_size=BATCH_SIZE, 
+        shuffle=True,
+        pin_memory=True,  # Improve data transfer to GPU
+        num_workers=2  # Parallel data loading
+    )
+    
+    # Setup and train model
+    pipe = setup_model_for_training(MODEL_NAME, torch_dtype)
+    train_model(pipe, train_dataloader, NUM_EPOCHS)
+    
+    print("Training complete!")
+
+if __name__ == "__main__":
+    main()

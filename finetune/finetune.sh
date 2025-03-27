@@ -10,4 +10,4 @@
 
 cd /w/284/murdock/merge/finetune
 
-srun python finetune2.py
+srun python finetune.py
