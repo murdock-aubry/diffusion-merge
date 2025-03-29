@@ -9,3 +9,4 @@ __pycache__/
 *.err
 *.pt
 *.pth
+*.sh
