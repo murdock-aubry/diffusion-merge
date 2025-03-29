@@ -1,5 +1,9 @@
 outs/
 outputs/
+finetunes/
+__pycache__/
+output_shards/
+huggingface_cache/
 slurm-queue.sh
 /hidden_reps/
 *.gif
