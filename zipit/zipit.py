@@ -51,6 +51,53 @@ def load_model_weights(model_name):
     
     return result
 
+
+
+def merge_conv_layers_multiple(weights, biases, nsamples, device, batch_size=10, thresh = 0.7):
+    """Merge convolutional layers with batching to reduce memory usage."""
+    new_weights = {}
+
+    bias_names = biases[0].keys()
+    
+    # Get a list of keys that are in both weight dictionaries
+    common_keys = set.intersection(*(set(weight.keys()) for weight in weights))
+    
+    for param_name in common_keys:
+        print(f"Merging {param_name}. Expected shape: {weights[0][param_name].shape}.", flush = True)
+        
+        # Get the corresponding bias name
+        bias_name = '.'.join(param_name.split('.')[:-1]) + ".bias"
+        
+        # Skip if the bias doesn't exist
+        if bias_name not in biases[0]:
+            continue
+        
+        # Process in batches to reduce memory usage
+
+        params = []
+        for weight in weights:
+            params.append(weight[param_name].to(device))
+
+        params_biases = []
+        for bias in biases:
+            params_biases.append(bias[bias_name].to(device))
+
+        # Merge weights and biases
+        new_param, new_bias = combine_conv_layers(params, params_biases, nsamples, device, thresh = thresh)
+        
+        # Store results on CPU to save GPU memory
+        new_weights[param_name] = new_param.to("cpu")
+        new_weights[bias_name] = new_bias.to("cpu")
+        
+        print(f"✓ Successfully merged {param_name}", flush = True)
+        
+        # Clean up GPU memory
+        del params, params_biases, new_param, new_bias
+        clear_memory()
+    
+    return new_weights
+
+
 def merge_conv_layers(weights1, weights2, biases1, biases2, nsamples, device, batch_size=10, thresh = 0.7):
     """Merge convolutional layers with batching to reduce memory usage."""
     new_weights = {}
@@ -89,13 +136,13 @@ def merge_conv_layers(weights1, weights2, biases1, biases2, nsamples, device, ba
     
     return new_weights
 
-
-
 def merge_linear_layers_multiple(weights, biases, nsamples, device, batch_size=10, thresh = 0.7):
     # weights = [weight1 ... weight-n]
     # biases = [bias1 ... bias-n]
 
     new_weights = {}
+
+    bias_names = biases[0].keys()
 
     common_keys = list(set(weights[0].keys()).intersection(*(set(weight.keys()) for weight in weights[1:])))
     total_keys = len(common_keys)
@@ -110,32 +157,32 @@ def merge_linear_layers_multiple(weights, biases, nsamples, device, batch_size=1
             
             # Skip if the bias doesn't exist
             # All models are of the same arch, no need to check all of them
-            if bias_name not in biases[0]:
+            if bias_name not in bias_names:
                 continue
             
             params = []
-
             for weight in weights: # load all weights for this batch
-                params.append(weight[param_name])
-            
+                params.append(weight[param_name].to(device, non_blocking=True))
+
+            # Move to GPU with non-blocking transfer
+            params_bias = []
+            for i, bias in enumerate(biases):  # load all biases
+                params_bias.append(bias[bias_name].to(device, non_blocking=True))
+                # biases[i][bias_name] = biases[i][bias_name].to(device, non_blocking=True)
+
             # Handle convolutional linear weights (1x1 convs stored as linear)
             shape_flag = len(params[0].shape) > 2
+
+
             original_shape = params[0].shape if shape_flag else None
             
             if shape_flag:
-                for param in params:
-                    param = param[:, :, 0, 0]
-            
+                for ipar in range(len(params)):
+                    params[ipar] = params[ipar][:, :, 0, 0]
+
+
             # Use non_blocking transfers and stream management for better GPU utilization
             with torch.cuda.stream(torch.cuda.Stream()):
-                # Move to GPU with non-blocking transfer
-
-                for param in params:
-                    param = param.to(device, non_blocking=True)
-                
-                for bias in biases: # load all biases
-                    bias[bias_name].to(device, non_blocking=True)
-
                 
                 print(f"Merging {param_name}. Shape: {params[0].shape}.", flush = True)
                 
@@ -143,6 +190,7 @@ def merge_linear_layers_multiple(weights, biases, nsamples, device, batch_size=1
                 if params[0].numel() > 10_000_000:  # Approximately 400MB for float32
                     print(f"Large parameter detected ({params[0].numel()} elements). Processing in chunks...", flush = True)
                     chunks = 2  # Split into 4 chunks
+
                     new_param_chunks = []
                     new_bias_chunks = []
                     
@@ -150,11 +198,11 @@ def merge_linear_layers_multiple(weights, biases, nsamples, device, batch_size=1
                     rows_per_chunk = params[0].shape[0] // chunks
                     for chunk in range(chunks):
                         start_row = chunk * rows_per_chunk
-                        end_row = start_row + rows_per_chunk if chunk < chunks-1 else param1.shape[0]
+                        end_row = start_row + rows_per_chunk if chunk < chunks-1 else params[0].shape[0]
                         
                         # Process each chunk
                         chunk_params = [param[start_row:end_row].clone() for param in params]
-                        chunk_biases = [bias[start_row:end_row].clone() for bias in biases]
+                        chunk_biases = [bias[start_row:end_row].clone() for bias in params_bias]
                         
                         # Only process bias for the last chunk
                         
@@ -176,10 +224,10 @@ def merge_linear_layers_multiple(weights, biases, nsamples, device, batch_size=1
                     # Combine chunks
                     new_param = torch.cat(new_param_chunks, dim=0)
                     new_bias = torch.cat(new_bias_chunks, dim=0)
-                    del new_param_chunks
+                    del new_param_chunks, new_bias_chunks
                 else:
                     # For normal sized parameters, process all at once
-                    new_param, new_bias = combine_linear_layers(params, biases, nsamples, device, thresh = thresh)
+                    new_param, new_bias = combine_linear_layers(params, params_bias, nsamples, device, thresh = thresh)
                 
                 # Restore original shape if necessary
                 if shape_flag:
@@ -192,7 +240,7 @@ def merge_linear_layers_multiple(weights, biases, nsamples, device, batch_size=1
                 print(f"✓ Successfully merged {param_name}", flush = True)
                 
                 # Clean up GPU memory
-                del params, biases, new_param, new_bias
+                del params, params_bias, new_param, new_bias
                 clear_memory()
                 
         # Make sure all GPU work is done before proceeding
@@ -200,10 +248,6 @@ def merge_linear_layers_multiple(weights, biases, nsamples, device, batch_size=1
         clear_memory()
         
     return new_weights
-
-
-
-
 
 def merge_linear_layers(weights1, weights2, biases1, biases2, nsamples, device, batch_size=10, thresh = 0.7):
     """Merge linear layers with batching to reduce memory usage."""
@@ -336,9 +380,6 @@ def save_merged_weights(model_path, new_weights):
     del new_unet
     clear_memory()
 
-
-
-
 def main():
     device = setup_device()
     print(f"Using device: {device}", flush = True)
@@ -359,35 +400,32 @@ def main():
     new_unet_name = f"/w/383/murdock/models/unets/zipit/{unet1_name_read}_{unet2_name_read}_thresh{thresh}"
     
 
-    print("\n----- Phase 1: Merging Linear Layers -----", flush = True)
-    # Reload models for linear layers
+    # print("\n----- Phase 1: Merging Linear Layers -----", flush = True)
+    # # Reload models for linear layers
 
-    with torch.no_grad():
-        model1_weights = load_model_weights(unet1_name)
-        model2_weights = load_model_weights(unet2_name)
+    # with torch.no_grad():
+    #     model1_weights = load_model_weights(unet1_name)
+    #     model2_weights = load_model_weights(unet2_name)
 
-        # Merge linear layers
-        linear_merged_weights_multiple = merge_linear_layers_multiple(
-            [model1_weights['linear_weights'], model2_weights['linear_weights']],
-            [model1_weights['linear_biases'], model2_weights['linear_biases']],
-            nsamples, 
-            device,
-            batch_size = batch_size,
-            thresh = thresh
-        )
+    #     # Merge linear layers
+    #     linear_merged_weights_multiple = merge_linear_layers_multiple(
+    #         [model1_weights['linear_weights'], model2_weights['linear_weights']],
+    #         [model1_weights['linear_biases'], model2_weights['linear_biases']],
+    #         nsamples, 
+    #         device,
+    #         batch_size = batch_size,
+    #         thresh = thresh
+    #     )
 
 
-        quit()
         
-        # Save linear results
-        save_merged_weights(new_unet_name, linear_merged_weights)
+    #     # Save linear results
+    #     save_merged_weights(new_unet_name, linear_merged_weights)
 
-        # Clean up final resources
-        del model1_weights, model2_weights, linear_merged_weights
-        clear_memory(aggressive=True)
+    #     # Clean up final resources
+    #     del model1_weights, model2_weights, linear_merged_weights
+    #     clear_memory(aggressive=True)
     
-
-
 
 
     # Process models in phases to reduce memory footprint
@@ -399,11 +437,9 @@ def main():
         model2_weights = load_model_weights(unet2_name)
         
         # Merge convolutional layers
-        conv_merged_weights = merge_conv_layers(
-            model1_weights['conv_weights'], 
-            model2_weights['conv_weights'],
-            model1_weights['conv_biases'], 
-            model2_weights['conv_biases'],
+        conv_merged_weights = merge_conv_layers_multiple(
+            [model1_weights['conv_weights'], model2_weights['conv_weights']],
+            [model1_weights['conv_biases'], model2_weights['conv_biases']],
             nsamples, 
             device,
             thresh = thresh
@@ -417,6 +453,8 @@ def main():
         clear_memory()
 
     print("\n----- Phase 3: Merging Normalization Layers -----", flush = True)
+
+
 
 
     with torch.no_grad():

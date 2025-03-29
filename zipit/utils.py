@@ -216,6 +216,7 @@ def combine_linear_layers(weights, biases, nsamples, device, thresh = 0.7):
     
     outputs = []
     for weight in weights:
+
         output = weight @ random_inputs
         outputs.append(output)
         weight = weight.to("cpu")  # Move to CPU immediately after use
@@ -232,13 +233,12 @@ def combine_linear_layers(weights, biases, nsamples, device, thresh = 0.7):
     clear_memory(corr_mat)  # Free memory
 
 
-    torch.save(coefs, "/w/383/murdock/other/coefs_mat.pt")
-
     weights = torch.cat([weight.to(device) for weight in weights], dim = 0)
     weight = get_new_weight(weights, coefs)
     clear_memory(weights)  # Free memory
     
-    biases = torch.cat(biases, dim=0)
+    biases = torch.cat([bias.to(device) for bias in biases], dim = 0)
+    # biases = torch.cat(biases, dim=0)
     bias = get_new_bias(biases, coefs)
     clear_memory(biases, coefs)  # Free memory
     
