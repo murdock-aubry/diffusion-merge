@@ -30,6 +30,25 @@ def get_prompts(source="fixed", num_samples=5):
             return [dataset[i]["Prompt"] for i in range(len(dataset))]
         else:
             return [dataset[i]["Prompt"] for i in range(num_samples)]
+        
+def get_prompts_local(source="fixed", num_samples=5):
+    """Retrieve prompts from a dataset or use fixed ones."""
+
+    if source == "fixed":
+        return [
+        "a corgi",
+        "a hot air balloon with a yin-yang symbol, with the moon visible in the daytime sky",
+        "a car with no windows",
+        "a cube made of porcupine",
+        "The saying 'BE EXCELLENT TO EACH OTHER' written on a red brick wall with a graffiti image of a green alien wearing a tuxedo. A yellow fire hydrant is on a sidewalk in the foreground.",
+    ]
+    else:
+
+        dataset = load_dataset('parquet', data_files=source, split = "train").shuffle()
+        if num_samples == -1:
+            return [dataset[i]["caption"] for i in range(len(dataset))]
+        else:
+            return [dataset[i]["caption"] for i in range(num_samples)]
             
     
     

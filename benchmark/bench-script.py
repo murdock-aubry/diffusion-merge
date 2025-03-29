@@ -22,18 +22,24 @@ torch.manual_seed(42)
 
 # model_name = args.model_name
 # weight_path = args.weight_path
+
 num_prompts = 20#args.num_prompts
 
-model_path = "/w/383/murdock/models/unets/zipit/"
-# model_name = "sd1.4_sd1.4-cocotuned_thresh0.7"
-model_name = "blank"
-unet_ckpt = model_path + model_name
+# model_path = "/scratch/ssd004/scratch/murdock/diffusion-merge/finetune/finetunes/"
+# model_name = "pokemon/epoch-2"
 
 
-base_model_path = "CompVis/stable-diffusion-v1-4"
+# model_name = "blank"
+# unet_ckpt = model_path + model_name
+
+
+model_path = "CompVis/stable-diffusion-v1-4"
+model_path = "/scratch/ssd004/scratch/murdock/diffusion-merge/finetune/finetunes/pokemon/epoch-2"
+
+model_name = "sd1.4-base"
 
 pipeline = DiffusionPipeline.from_pretrained(
-    base_model_path,
+    model_path,
     torch_dtype=torch.float16,
     safety_checker=None
 )
@@ -42,26 +48,28 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 pipeline = pipeline.to(device)
 
 
-custom_unet = UNet2DConditionModel.from_pretrained(
-    unet_ckpt,
-    torch_dtype=torch.float16
-).to(device)
 
-pipeline.unet = custom_unet
+# custom_unet = UNet2DConditionModel.from_pretrained(
+#     unet_ckpt,
+#     torch_dtype=torch.float16
+# ).to(device)
+
+# pipeline.unet = custom_unet
 
 
 # Open existing metrics
-with open('metrics.json', 'r') as file:
+with open('/scratch/ssd004/scratch/murdock/diffusion-merge/finetune/metrics.json', 'r') as file:
     metrics = json.load(file)
 
 with open('../config.json', 'r') as file:
     config = json.load(file)
+
+
 datasets = config["datasets"]
 
 
 gc.collect()
 torch.cuda.empty_cache()
-
 
 clip_name = "openai/clip-vit-base-patch16"
 
@@ -76,9 +84,14 @@ for data_name, data_link in datasets.items():
     if data_name not in metrics[model_name].keys():
         metrics[model_name][data_name] = {}
 
-    dataset = get_prompts(source = data_link, num_samples = num_prompts)
+    
+    data_link = "/scratch/ssd004/scratch/murdock/diffusion-merge/finetune/output_shards/" + data_link
+
+
+    dataset = get_prompts_local(source = data_link, num_samples = num_prompts)
 
     num_prompts = len(dataset)
+
     
     clips = 0
     ir = 0
@@ -118,7 +131,7 @@ for data_name, data_link in datasets.items():
     metrics[model_name][data_name]["clip"] = clips
     metrics[model_name][data_name]["ir"] = ir
 
-# Save the updated metrics to the file
-with open('metrics.json', 'w') as file:
-    json.dump(metrics, file)
+    # Save the updated metrics to the file
+    with open('metrics.json', 'w') as file:
+        json.dump(metrics, file)
 

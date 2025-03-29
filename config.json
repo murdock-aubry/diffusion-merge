@@ -1,6 +1,12 @@
 {
     "datasets" : {
-        "parti-prompts" : "nateraw/parti-prompts"
+        "animals" : "animals_shard.parquet",
+        "body-parts" : "body-parts_shard.parquet",
+        "clothes" : "clothes_shard.parquet",
+        "electronics" : "electronics_shard.parquet",
+        "food" : "food_shard.parquet",
+        "text" : "text_shard.parquet",
+        "vehicles" : "vehicles_shard.parquet"
     },
 
     "models" : {

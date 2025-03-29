@@ -15,7 +15,7 @@ def clear_memory(aggressive=False):
         if aggressive:
             # Force GPU synchronization and more aggressive memory cleanup
             torch.cuda.synchronize()
-            # Optional: on some systems this helps reduce fragmentation
+            
             if hasattr(torch.cuda, 'memory_stats'):
                 torch.cuda.reset_peak_memory_stats()
 
@@ -400,31 +400,31 @@ def main():
     new_unet_name = f"/w/383/murdock/models/unets/zipit/{unet1_name_read}_{unet2_name_read}_thresh{thresh}"
     
 
-    # print("\n----- Phase 1: Merging Linear Layers -----", flush = True)
-    # # Reload models for linear layers
+    print("\n----- Phase 1: Merging Linear Layers -----", flush = True)
+    # Reload models for linear layers
 
-    # with torch.no_grad():
-    #     model1_weights = load_model_weights(unet1_name)
-    #     model2_weights = load_model_weights(unet2_name)
+    with torch.no_grad():
+        model1_weights = load_model_weights(unet1_name)
+        model2_weights = load_model_weights(unet2_name)
 
-    #     # Merge linear layers
-    #     linear_merged_weights_multiple = merge_linear_layers_multiple(
-    #         [model1_weights['linear_weights'], model2_weights['linear_weights']],
-    #         [model1_weights['linear_biases'], model2_weights['linear_biases']],
-    #         nsamples, 
-    #         device,
-    #         batch_size = batch_size,
-    #         thresh = thresh
-    #     )
+        # Merge linear layers
+        linear_merged_weights_multiple = merge_linear_layers_multiple(
+            [model1_weights['linear_weights'], model2_weights['linear_weights']],
+            [model1_weights['linear_biases'], model2_weights['linear_biases']],
+            nsamples, 
+            device,
+            batch_size = batch_size,
+            thresh = thresh
+        )
 
 
         
-    #     # Save linear results
-    #     save_merged_weights(new_unet_name, linear_merged_weights)
+        # Save linear results
+        save_merged_weights(new_unet_name, linear_merged_weights)
 
-    #     # Clean up final resources
-    #     del model1_weights, model2_weights, linear_merged_weights
-    #     clear_memory(aggressive=True)
+        # Clean up final resources
+        del model1_weights, model2_weights, linear_merged_weights
+        clear_memory(aggressive=True)
     
 
 
