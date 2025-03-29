@@ -10,13 +10,14 @@ output_dir = "denoising_steps"
 os.makedirs(output_dir, exist_ok=True)
 
 # Path to the original model
-base_model_path = "CompVis/stable-diffusion-v1-4"
+# base_model_path = "CompVis/stable-diffusion-v1-4"
+base_model_path = "/w/383/murdock/models/unets/finetunes/animals/epoch-2"
 
-custom_unet_name = "sd1.4_sd1.4-cocotuned_thresh0.0"
+# custom_unet_name = "all_thresh0.0"
 # custom_unet_name = "blank"
 
 # Path to your saved UNet
-custom_unet_path = f"/w/383/murdock/models/unets/zipit/{custom_unet_name}"
+# custom_unet_path = f"/w/383/murdock/models/unets/zipit/{custom_unet_name}"
 
 
 # 1. Load the original pipeline with safety checker disabled
@@ -31,24 +32,24 @@ pipeline = pipeline.to(device)
 
 
 
-# 2. Load  custom UNet
-try:
-    custom_unet = UNet2DConditionModel.from_pretrained(
-        custom_unet_path,
-        torch_dtype=torch.float16
-    )
+# # 2. Load  custom UNet
+# try:
+#     custom_unet = UNet2DConditionModel.from_pretrained(
+#         custom_unet_path,
+#         torch_dtype=torch.float16
+#     )
 
-    pipeline.unet = custom_unet
+#     pipeline.unet = custom_unet
 
-except Exception as e:
-    print(f"Error loading custom UNet, using original: {e}")
+# except Exception as e:
+#     print(f"Error loading custom UNet, using original: {e}")
 
 
 # 3. Move to GPU
 pipeline = pipeline.to("cuda")
 unet = pipeline.unet
 
-prompt = "A hyper-intelligent robot alien looking over a sea of planets, stars, and galaxies in space."
+prompt = "A dog and a cat sitting side by side staring in the same direction."
 
 
 # 3. Run inference with torch.no_grad()
