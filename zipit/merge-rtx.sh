@@ -8,6 +8,6 @@
 #SBATCH --output=/scratch/ssd004/scratch/murdock/diffusion-merge/outs/output/slurm-%j.out
 #SBATCH --error=/scratch/ssd004/scratch/murdock/diffusion-merge/outs/error/slurm-%j.err
 
-cd /scratch/ssd004/scratch/murdock/diffusion-merge/finetune
+cd /scratch/ssd004/scratch/murdock/diffusion-merge/zipit
 
-srun python finetune.py --data_shard vehicles
+srun python zipit.py

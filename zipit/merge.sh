@@ -10,4 +10,4 @@
 
 cd /w/284/murdock/merge/zipit
 
-srun python zipit2.py
+srun python zipit.py

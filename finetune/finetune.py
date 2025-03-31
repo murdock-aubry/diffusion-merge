@@ -19,12 +19,14 @@ parser.add_argument("--data_shard", type=str, required=True, help="Name of the d
 args = parser.parse_args()
 
 DATASET_SHARD = args.data_shard
-DATASET_NAME = f"output_shards/{DATASET_SHARD}_shard.parquet"
+DATASET_NAME = f"/projects/dynamics/diffusion-tmp/data/train/{DATASET_SHARD}_shard.parquet"
 
 
 # Configuration
+
+print("Initializing hyperparameters", flush = True)
 MODEL_NAME = "CompVis/stable-diffusion-v1-4"
-OUTPUT_DIR = f"finetunes/{DATASET_SHARD}"
+OUTPUT_DIR = f"/projects/dynamics/diffusion-tmp/finetunes/{DATASET_SHARD}"
 BATCH_SIZE = 1  # Reduce batch size
 GRADIENT_ACCUMULATION_STEPS = 2
 LEARNING_RATE = 1e-6
@@ -43,8 +45,7 @@ class MemoryEfficientPromptImageDataset(Dataset):
     def __init__(self, dataset_name, split="train"):
 
         # loading pre-split shards based on category name
-        self.dataset = load_dataset('parquet', data_files=DATASET_NAME, split = split)
-
+        self.dataset = load_dataset('parquet', data_files=DATASET_NAME, split=split)["item"]
 
         self.transform = transforms.Compose([
             transforms.Resize((512, 512)),  # Consistent image size
@@ -145,7 +146,7 @@ def train_model(pipe, train_dataloader, num_epochs):
                 
                 # Add noise
                 noisy_latents = pipe.scheduler.add_noise(latents, noise, timesteps)
-                del latents, noise
+                del latents
                 
                 # Predict noise
                 noise_pred = pipe.unet(
@@ -156,13 +157,13 @@ def train_model(pipe, train_dataloader, num_epochs):
                 )[0]
                 
                 # Compute loss
-                loss = torch.nn.functional.mse_loss(noise_pred, torch.randn_like(noise_pred))
+                loss = torch.nn.functional.mse_loss(noise_pred, noise)
                 loss = loss / GRADIENT_ACCUMULATION_STEPS
             
             # Backward pass with gradient scaling
             loss.backward()
 
-            print(f"epoch: {epoch}, step: {step}, loss: {loss}")
+            print(f"epoch: {epoch}, step: {step}, loss: {loss}", flush = True)
             
             # Gradient clipping and optimization step
             if (step + 1) % GRADIENT_ACCUMULATION_STEPS == 0:
@@ -184,6 +185,9 @@ def train_model(pipe, train_dataloader, num_epochs):
 
 def main():
     # Prepare dataset
+
+    print("Loading training dataset", flush = True)
+
     train_dataset = MemoryEfficientPromptImageDataset(DATASET_NAME)
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset, 
@@ -192,12 +196,14 @@ def main():
         pin_memory=True,  # Improve data transfer to GPU
         num_workers=2  # Parallel data loading
     )
-    
+
+    print("Loading model pipeline", flush = True)
+
     # Setup and train model
     pipe = setup_model_for_training(MODEL_NAME, torch_dtype)
     train_model(pipe, train_dataloader, NUM_EPOCHS)
     
-    print("Training complete!")
+    print("Training complete!", flush = True)
 
 if __name__ == "__main__":
     main()

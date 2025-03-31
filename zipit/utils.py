@@ -19,6 +19,18 @@ def load_unet(path):
 
     return unet
 
+def load_unet_local(path):
+    pipeline = DiffusionPipeline.from_pretrained(
+        path, 
+        torch_dtype=torch.float16,
+        safety_checker=None
+    ).to("cuda")
+    unet = pipeline.unet
+
+    del pipeline
+
+    return unet
+
 
 def get_layer_names(unet):
     return list(dict(unet.named_parameters()).keys())
@@ -129,11 +141,7 @@ def compute_corr_slope_matrices(data, thresh):
     #                 scatter_plot(data[i], data[k], title = "", xlabel = "", ylabel = "", path_name = f"gif/{k}.png")
 
 
-    correlation_matrix[torch.abs(correlation_matrix) < thresh] = 0  # Set the entries which are below a reasonable minimal correlation threshold to 0
-    non_zero_count = torch.count_nonzero(correlation_matrix)
-
-    print("number of non-trivial swaps:", non_zero_count - 2 * correlation_matrix.shape[-1])
-    
+    correlation_matrix[torch.abs(correlation_matrix) < thresh] = 0  # Set the entries which are below a reasonable minimal correlation threshold to 0    
 
     clear_memory(stds, std_outer)
     
@@ -145,21 +153,19 @@ def compute_corr_slope_matrices(data, thresh):
     return correlation_matrix, slope_matrix
 
 
-def get_new_filters(filters_joint, coefs_mat):
-    num_filters = filters_joint.shape[0] // 2
-    # coefs = abs(corr_mat) * slope_mat
-    # coefs /= torch.norm(coefs, dim=0, keepdim=True)  # Normalize in-place
+def get_new_filters(filters_joint, coefs_mat, nmodels):
+
+    num_filters = filters_joint.shape[0] // nmodels
     
     new_filters = torch.zeros_like(filters_joint[:num_filters])  # Avoid redundant shape lookup
 
-    
     for ifilter in range(num_filters):
         new_filters[ifilter] = torch.sum(filters_joint * coefs_mat[ifilter, :, None, None, None], dim=0)
     
     return new_filters
 
 
-def get_new_weight(weights_joint, coefs):
+def get_new_weight(weights_joint, coefs, nmodels):
     """
     Compute new weights based on correlation and slope matrices.
     
@@ -171,7 +177,7 @@ def get_new_weight(weights_joint, coefs):
     Returns:
     torch.Tensor: New weight matrix of shape [n, m]
     """
-    nrows = weights_joint.shape[0] // 2
+    nrows = weights_joint.shape[0] // nmodels
     
     new_weight = torch.zeros_like(weights_joint[:nrows])
 
@@ -181,9 +187,9 @@ def get_new_weight(weights_joint, coefs):
 
     return new_weight
 
-def get_new_bias(biases, coef_mat):
+def get_new_bias(biases, coef_mat, nmodels):
 
-    nrows = biases.shape[0] // 2
+    nrows = biases.shape[0] // nmodels
 
     new_bias = coef_mat @ biases
     new_bias = new_bias[:nrows]
@@ -211,12 +217,14 @@ def combine_linear_layers(weights, biases, nsamples, device, thresh = 0.7):
     Returns:
     tuple: (new_weight, new_bias) with combined weights and biases.
     """
+
+    nmodels = len(weights)
+
     input_dim = weights[0].shape[1]
     random_inputs = torch.randn(input_dim, nsamples, device=device, dtype=weights[0].dtype)
     
     outputs = []
     for weight in weights:
-
         output = weight @ random_inputs
         outputs.append(output)
         weight = weight.to("cpu")  # Move to CPU immediately after use
@@ -234,15 +242,30 @@ def combine_linear_layers(weights, biases, nsamples, device, thresh = 0.7):
 
 
     weights = torch.cat([weight.to(device) for weight in weights], dim = 0)
-    weight = get_new_weight(weights, coefs)
+    weight = get_new_weight(weights, coefs, nmodels)
     clear_memory(weights)  # Free memory
     
     biases = torch.cat([bias.to(device) for bias in biases], dim = 0)
     # biases = torch.cat(biases, dim=0)
-    bias = get_new_bias(biases, coefs)
+    bias = get_new_bias(biases, coefs, nmodels)
     clear_memory(biases, coefs)  # Free memory
     
     return weight, bias
+
+
+def combine_norm_layers_multiple(weights, biases):
+
+    new_weights = {}
+
+    nmodels = len(weights)
+
+    for name in weights[0].keys():
+        new_weights[name] = sum(weight[name] for weight in weights) / nmodels
+
+    for name in biases[0].keys():
+        new_weights[name] = sum(bias[name] for bias in biases) / nmodels
+
+    return new_weights
 
 
 def combine_norm_layers(weights1, weights2, biases1, biases2, device):
@@ -291,6 +314,8 @@ def combine_conv_layers(filters, biases, nsamples, device, thresh = 0.7):
     # filters = [filter1, filter2, ...] list of filters
     # collapses all filters to one which is the same size as the constituents
 
+    nmodels = len(filters)
+
     in_channels = filters[0].shape[1]
     filter_size = filters[0].shape[-1]
 
@@ -311,10 +336,10 @@ def combine_conv_layers(filters, biases, nsamples, device, thresh = 0.7):
     coefs = abs(corr_mat) * slope_mat
     coefs = coefs / torch.norm(coefs, p=1, dim=0, keepdim=True)
 
-    new_filters = get_new_filters(filters_joint, coefs)
+    new_filters = get_new_filters(filters_joint, coefs, nmodels)
 
     biases_joint = torch.cat(biases, dim = 0)
-    new_bias = get_new_bias(biases_joint, coefs)
+    new_bias = get_new_bias(biases_joint, coefs, nmodels)
 
     return new_filters, new_bias
 

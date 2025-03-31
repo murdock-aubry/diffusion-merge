@@ -8,4 +8,4 @@ pipeline = DiffusionPipeline.from_pretrained(
     ).to("cuda")
 
 # Save a copy of the entire UNet
-pipeline.unet.save_pretrained("/w/383/murdock/models/unets/zipit/blank")
+pipeline.unet.save_pretrained("/projects/dynamics/diffusion-tmp/finetunes/base")

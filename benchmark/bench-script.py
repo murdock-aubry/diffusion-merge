@@ -58,6 +58,9 @@ pipeline = pipeline.to(device)
 
 
 # Open existing metrics
+
+path = "/projects/dynamics/diffusion-tmp/finetunes/"
+
 with open('/scratch/ssd004/scratch/murdock/diffusion-merge/finetune/metrics.json', 'r') as file:
     metrics = json.load(file)
 

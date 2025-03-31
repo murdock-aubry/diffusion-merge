@@ -35,7 +35,9 @@ class DatasetSharder:
             "electronics": [
                 "phone", "laptop", "computer", "tablet", "smartwatch", 
                 "drone", "camera", "headphones", "speaker", "tv", 
-                "monitor", "keyboard", "mouse"
+                "monitor", "keyboard", "mouse", "charger", "microphone", 
+                "printer", "router", "modem", "game console", "smart home", 
+                "robot", "sensor", "drone", "circuit", "hardware"
             ],
             "clothes": [
                 "shirt", "pants", "dress", "jacket", "coat", "sweater", 
@@ -122,25 +124,30 @@ class DatasetSharder:
             ]
 
             
-            # Assign to the category with the highest score, and only if at least one of the scores is non-zero
-            max_score = max(scores.values())
-            if max_score > 0:
-                for category, score in scores.items():
-                    if score == max_score:
-                        shards[category].append(item_copy)
-            else:
-                uncategorized.append(item_copy)
+            # Allocate the sample to each category with a nonzero score
+            for category, score in scores.items():
+                if score > 0:
+                    shards[category].append({'item': item_copy, 'score': score})
+        # Filter each category to only include the top M items based on score
+
+        M = 1111 #results in 1000 train, 100 test
+
+        for category in shards.keys():
+            sorted_items = sorted(shards[category], key=lambda x: x['score'], reverse=True)[:M]
+            train_split = sorted_items[:int(M * 0.9)]
+            test_split = sorted_items[int(M * 0.9):]
+            shards[category] = {'train': train_split, 'test': test_split}
         
         # Optional: Add uncategorized to a separate shard
         shards['uncategorized'] = uncategorized
-        
+
         return shards
     
-    def save_shards(self, shards: Dict[str, List[Dict[str, Any]]], output_dir: str, file_type: str = 'parquet'):
+    def save_shards(self, shards: Dict[str, Dict[str, List[Dict[str, Any]]]], output_dir: str, file_type: str = 'parquet'):
         """
         Save categorized shards to files, excluding the "uncategorized" shard.
         
-        :param shards: Categorized dataset shards
+        :param shards: Categorized dataset shards with nested structure
         :param output_dir: Directory to save shard files
         :param file_type: File type to save ('pickle' or 'parquet')
         """
@@ -148,33 +155,41 @@ class DatasetSharder:
         os.makedirs(output_dir, exist_ok=True)
         
         # Save each shard, excluding "uncategorized"
-        for category, data in shards.items():
+        for category, split_data in shards.items():
             if category == 'uncategorized':
                 continue  # Skip saving the "uncategorized" shard
-            output_path = os.path.join(output_dir, f"{category}_shard")
             
-            if file_type == 'pickle':
-                # Save using pickle (preserves most Python objects)
-                output_path += '.pkl'
-                with open(output_path, 'wb') as f:
-                    pickle.dump(data, f)
-            
-            elif file_type == 'parquet':
-                # Save using parquet (efficient for large datasets)
-                output_path += '.parquet'
-                # Convert to DataFrame first
-                df = pd.DataFrame(data)
-                df.to_parquet(output_path, index=False)
-            
-            else:
-                raise ValueError(f"Unsupported file type: {file_type}")
+            # Handle each split (train, test, etc.)
+            for split, data in split_data.items():
+                # Create subdirectory for the split if needed
+                split_dir = os.path.join(output_dir, split)
+                os.makedirs(split_dir, exist_ok=True)
+                
+                output_path = os.path.join(split_dir, f"{category}_shard")
+                
+                if file_type == 'pickle':
+                    # Save using pickle (preserves most Python objects)
+                    output_path += '.pkl'
+                    with open(output_path, 'wb') as f:
+                        pickle.dump(data, f)
+                
+                elif file_type == 'parquet':
+                    # Save using parquet (efficient for large datasets)
+                    output_path += '.parquet'
+                    # Convert to DataFrame first
+                    df = pd.DataFrame(data)
+                    df.to_parquet(output_path, index=False)
+                
+                else:
+                    raise ValueError(f"Unsupported file type: {file_type}")
         
         # Print shard sizes, excluding "uncategorized"
         print("Shard Sizes:")
-        for category, data in shards.items():
+        for category, split_data in shards.items():
             if category == 'uncategorized':
                 continue  # Skip printing the "uncategorized" shard size
-            print(f"{category}: {len(data)} items")
+            for split, data in split_data.items():
+                print(f"{category} ({split}): {len(data)} items")
 
 
 # Example usage
@@ -182,7 +197,7 @@ def main():
 
     data_name = "yuvalkirstain/pickapic_v1"
 
-    N = 15
+    N = 22
     all_files = list_repo_files(data_name, repo_type="dataset")
 
     # Filter and sort files
@@ -207,11 +222,7 @@ def main():
 
     dataset = dataset["train"]
 
-    # print(dataset[0]["caption"])
-
-    # quit()
-
-
+ 
     # Categories to classify
     categories = ["body-parts", "electronics", "clothes", "vehicles", "animals", "food", "text"]
     
@@ -220,9 +231,12 @@ def main():
     
     # Categorize dataset
     shards = sharder.categorize_dataset(dataset)
-    
+
     # Save shards
-    sharder.save_shards(shards, "output_shards")
+
+    data_path = "/projects/dynamics/diffusion-tmp/data"
+
+    sharder.save_shards(shards, data_path)
 
 if __name__ == "__main__":
     main()
