@@ -10,4 +10,4 @@
 
 cd /scratch/ssd004/scratch/murdock/diffusion-merge/finetune
 
-srun python finetune.py --data_shard vehicles
+srun python finetune.py --data_shard electronics

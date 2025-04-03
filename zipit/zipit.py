@@ -255,20 +255,21 @@ def main():
     batch_size = 10
     thresh = 0.7
 
-    shards = ["animals", "body-parts", "clothes", "food", "electronics", "text", "vehicles"]
+    # shards = ["animals", "body-parts", "clothes", "food", "electronics", "text", "vehicles"]
+    # shards = ["sketch"]
     # shards = ["animals", "body-parts", "clothes"]
     # shards = ["animals", "body-parts"]
-    # shards = ["animals"]
+    shards = ["animals", "text"]
 
     model_path = "/projects/dynamics/diffusion-tmp/finetunes"
 
-    unet_names = [f"{model_path}/{shard}/epoch-2" for shard in shards]
-    unet_names = ["CompVis/stable-diffusion-v1-4"] + unet_names
+    unet_names = [f"{model_path}/{shard}/epoch-4" for shard in shards]
+    # unet_names = ["CompVis/stable-diffusion-v1-4"] + unet_names
 
     print(unet_names)
 
     name_save = "_".join(sorted(shards))
-    new_unet_name = f"{model_path}/{name_save}_thresh{thresh}"
+    new_unet_name = f"{model_path}/{name_save}_thresh{thresh}_no_base"
     
 
     print("\n----- Phase 1: Merging Linear Layers -----", flush = True)

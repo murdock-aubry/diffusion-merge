@@ -5,7 +5,9 @@ from datasets import load_dataset
 from torchmetrics.functional.multimodal.clip_score import clip_score
 from torch_fidelity import calculate_metrics
 from torchmetrics.image.inception import InceptionScore
+import clip
 import ImageReward as RM
+import torch.nn.functional as F
 import json
 
 def load_model(model_ckpt="stabilityai/stable-diffusion-xl-base-1.0"):
@@ -45,10 +47,11 @@ def get_prompts_local(source="fixed", num_samples=5):
     else:
 
         dataset = load_dataset('parquet', data_files=source, split = "train").shuffle()
+
         if num_samples == -1:
-            return [dataset[i]["caption"] for i in range(len(dataset))]
+            return [dataset[i]["item"]["caption"] for i in range(len(dataset))]
         else:
-            return [dataset[i]["caption"] for i in range(num_samples)]
+            return [dataset[i]["item"]["caption"] for i in range(num_samples)]
             
     
     
@@ -57,6 +60,54 @@ def generate_images(pipeline, prompts, num_images_per_prompt=1):
     """Generate images using the diffusion model."""
     results = pipeline(prompts, num_images_per_prompt=num_images_per_prompt, output_type="np").images
     return np.array(results)  # Ensure it's a NumPy array for processing
+
+def calculate_blip_score(generated_images, prompts, model, processor):
+    """Compute similarity score for generated images using BLIP."""
+    
+    
+    # Ensure images are properly formatted
+    if generated_images.max() > 1.0:
+        generated_images = generated_images / 255.0
+
+    # BLIP typically expects images in the range [0,1]
+    # Resize images to BLIP's expected size (typically 224x224)
+    generated_images = F.interpolate(generated_images, size=(224, 224), mode='bilinear', align_corners=False)
+
+    # Get model device and move images to that device
+    device = next(model.parameters()).device
+    generated_images = generated_images.to(device)
+    
+    # Process inputs
+    if isinstance(prompts, str):
+        # Process image and text
+        inputs = processor(images=generated_images, text=prompts, return_tensors="pt").to(device)
+        
+        with torch.no_grad():
+            # Forward pass through BLIP
+            outputs = model(**inputs)
+            
+            # Extract features for similarity calculation
+            # For BLIP, we need to extract image and text embeddings
+            # The exact API depends on which BLIP model you're using
+            if hasattr(model, "get_image_features") and hasattr(model, "get_text_features"):
+                # For BLIP models with explicit feature extractors
+                image_features = model.get_image_features(generated_images)
+                text_features = model.get_text_features(inputs.input_ids)
+                
+                # Normalize features
+                image_features = image_features / image_features.norm(dim=-1, keepdim=True)
+                text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+                
+                # Calculate similarity
+                similarity = torch.cosine_similarity(image_features, text_features)
+            else:
+                # For BLIP models without explicit feature extractors,
+                # use the ITM (Image-Text Matching) score
+                itm_outputs = model(**inputs, output_attentions=False)
+                itm_scores = itm_outputs.logits
+                similarity = torch.nn.functional.softmax(itm_scores, dim=1)[:, 1]  # Probability of match
+
+    return similarity
 
 
 def calculate_clip_score(generated_images, prompts, model_name="openai/clip-vit-base-patch16"):
@@ -67,11 +118,39 @@ def calculate_clip_score(generated_images, prompts, model_name="openai/clip-vit-
     
     return round(float(clip_score(generated_images, prompts, model_name_or_path=model_name).detach()), 4)
 
+# def calculate_clip_score(generated_images, prompts, model, tokenizer):
+#     """Compute CLIP score for generated images."""
+    
+#     # Ensure images are properly formatted for CLIP
+#     if generated_images.max() > 1.0:
+#         generated_images = generated_images / 255.0
+
+#     # Resize images to CLIP's expected size
+#     generated_images = F.interpolate(generated_images, size=(224, 224), mode='bilinear', align_corners=False)
+
+#     # Get model device and move images to that device
+#     device = next(model.parameters()).device
+#     generated_images = generated_images.to(device)
+    
+#     # Process text input - handle string prompts
+#     if isinstance(prompts, str):
+#         # Create tokenizer if needed
+#         # tokenizer = CLIPTokenizer.from_pretrained("openai/clip-vit-base-patch32")  # adjust model name if needed
+#         text_inputs = tokenizer(prompts, padding=True, return_tensors="pt").to(device)
+        
+#         # Run the clip core
+#         with torch.no_grad():
+#             image_features = model.get_image_features(generated_images)
+#             text_features = model.get_text_features(
+#                 input_ids=text_inputs.input_ids,
+#                 attention_mask=text_inputs.attention_mask
+#             )
+#             similarity = torch.cosine_similarity(image_features, text_features)
+
+#     return similarity
 
 
-def calculate_ir_score(generated_images, prompts, model_name = "ImageReward-v1.0"):
-
-    model = RM.load("ImageReward-v1.0")
+def calculate_ir_score(generated_images, prompts, model):
 
     rewards = model.score(prompts, generated_images)
 

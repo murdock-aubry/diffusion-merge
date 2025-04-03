@@ -84,6 +84,11 @@ def plot_model_metrics(json_path, output_path='model_metrics.png'):
     # Close the plot to free up memory
     plt.close()
 
+
+def plot_polygon_bench():
+
+    return
+
 def main():
     # Load the data (assuming it's saved to a file)
     with open('/w/284/murdock/merge/benchmark/metrics.json', 'r') as f:
@@ -137,10 +142,10 @@ def main():
     plt.legend()
     
     plt.tight_layout()
-    plt.savefig('benchmark_plots.png', dpi=300)
+    plt.savefig('benchmark_plots_radial.png', dpi=300)
     plt.show()
 
 if __name__ == "__main__":
 
     plot_model_metrics('metrics.json')
-    # main()
+    main()

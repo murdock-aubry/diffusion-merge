@@ -3,14 +3,18 @@ import numpy as np
 from diffusers import DiffusionPipeline, UNet2DConditionModel
 from datasets import load_dataset
 import json
+from transformers import Blip2Processor, Blip2ForConditionalGeneration
+from transformers import CLIPProcessor, CLIPModel, CLIPTokenizer
 from benchmark import *
 from utils import *
 import argparse
 from PIL import Image
 import shutil
+import argparse
 import tempfile
 import os 
 import gc
+import ImageReward as RM
 
 
 torch.manual_seed(42)
@@ -23,18 +27,11 @@ torch.manual_seed(42)
 # model_name = args.model_name
 # weight_path = args.weight_path
 
-num_prompts = 20#args.num_prompts
-
-# model_path = "/scratch/ssd004/scratch/murdock/diffusion-merge/finetune/finetunes/"
-# model_name = "pokemon/epoch-2"
-
-
-# model_name = "blank"
-# unet_ckpt = model_path + model_name
+num_prompts = -1#args.num_prompts
 
 
 model_path = "CompVis/stable-diffusion-v1-4"
-model_path = "/scratch/ssd004/scratch/murdock/diffusion-merge/finetune/finetunes/pokemon/epoch-2"
+# model_path = "/scratch/ssd004/scratch/murdock/diffusion-merge/finetune/finetunes/pokemon/epoch-2"
 
 model_name = "sd1.4-base"
 
@@ -49,20 +46,29 @@ pipeline = pipeline.to(device)
 
 
 
-# custom_unet = UNet2DConditionModel.from_pretrained(
-#     unet_ckpt,
-#     torch_dtype=torch.float16
-# ).to(device)
+specialist = "animals_text_thresh0.7_no_base"
+parser = argparse.ArgumentParser(description="Specify dataset name for finetuning.")
+parser.add_argument("--data_shard", type=str, required=True, help="Name of the dataset to use for finetuning.")
+args = parser.parse_args()
+
+
+# specialist = args.data_shard
+model_name = specialist#"merged-0.0"
+unet_ckpt = f"/projects/dynamics/diffusion-tmp/finetunes/{specialist}"
+custom_unet = UNet2DConditionModel.from_pretrained(
+    unet_ckpt,
+    torch_dtype=torch.float16
+).to(device)
 
 # pipeline.unet = custom_unet
 
 
 # Open existing metrics
 
-path = "/projects/dynamics/diffusion-tmp/finetunes/"
+# path = "/projects/dynamics/diffusion-tmp/finetunes/"
 
-with open('/scratch/ssd004/scratch/murdock/diffusion-merge/finetune/metrics.json', 'r') as file:
-    metrics = json.load(file)
+# with open(f'/scratch/ssd004/scratch/murdock/diffusion-merge/benchmark/results/{specialist}.json', 'r') as file:
+#     metrics = json.load(file)
 
 with open('../config.json', 'r') as file:
     config = json.load(file)
@@ -74,34 +80,53 @@ datasets = config["datasets"]
 gc.collect()
 torch.cuda.empty_cache()
 
-clip_name = "openai/clip-vit-base-patch16"
+# clip_name = "openai/clip-vit-base-patch16"
+# clip_model = CLIPModel.from_pretrained(clip_name).to(device)
+# clip_processor = CLIPProcessor.from_pretrained(clip_name)
+# clip_model.eval()
+# clip_tokenizer = CLIPTokenizer.from_pretrained("openai/clip-vit-base-patch32")  # adjust model name if needed
 
-if model_name not in metrics.keys():
-    metrics[model_name] = {}
 
+ir_model = RM.load("ImageReward-v1.0")
+
+
+
+# print(model_name)
+# print(metrics.keys())
+
+metrics = {}
+
+
+print(f"benchmarking {model_name}", flush = True)
 
 for data_name, data_link in datasets.items():
 
-    print(f"test prompts from {data_name}")
+    print(f"test prompts from {data_name}, {data_link}", flush = True)
 
-    if data_name not in metrics[model_name].keys():
-        metrics[model_name][data_name] = {}
+
+    metrics[data_name] = {}
+
+    # print(metrics[model_name].keys(), flush = True)
+    # if data_name not in metrics[model_name].keys():
+
+    # else:
+    #     print("data already saved")
+    #     continue
 
     
-    data_link = "/scratch/ssd004/scratch/murdock/diffusion-merge/finetune/output_shards/" + data_link
+    data_link = "/projects/dynamics/diffusion-tmp/data/test/" + data_link
 
 
     dataset = get_prompts_local(source = data_link, num_samples = num_prompts)
 
     num_prompts = len(dataset)
-
     
     clips = 0
     ir = 0
 
     for iprompt, prompt in enumerate(dataset):
 
-        print(f"processing prompt {iprompt + 1} of {num_prompts}")
+        print(f"processing prompt {iprompt + 1} of {num_prompts}", flush = True)
 
         temp_dir = tempfile.mkdtemp()
         temp_image_path = os.path.join(temp_dir, "temp_image.png")
@@ -121,8 +146,10 @@ for data_name, data_link in datasets.items():
         image_tensor = torch.from_numpy(image).permute(2, 0, 1).unsqueeze(0).type(torch.uint8)
 
         # Compute scores
-        clips += calculate_clip_score(image_tensor, prompt, model_name=clip_name) / num_prompts
-        ir += calculate_ir_score(temp_image_path, prompt) / num_prompts
+
+        # blip_score = calculate_blip_score(image_tensor, prompt, blip_model, blip_processor)
+        clips += calculate_clip_score(image_tensor, prompt) / num_prompts
+        ir += calculate_ir_score(temp_image_path, prompt, ir_model) / num_prompts
 
         # Clean up
         shutil.rmtree(temp_dir)
@@ -130,11 +157,15 @@ for data_name, data_link in datasets.items():
         gc.collect()
         torch.cuda.empty_cache()
 
-    metrics[model_name][data_name]["nprompts"] = num_prompts
-    metrics[model_name][data_name]["clip"] = clips
-    metrics[model_name][data_name]["ir"] = ir
+    metrics[data_name]["nprompts"] = num_prompts
+    metrics[data_name]["clip"] = clips
+    metrics[data_name]["ir"] = ir
+
+    del dataset
+    torch.cuda.empty_cache()
+
 
     # Save the updated metrics to the file
-    with open('metrics.json', 'w') as file:
+    with open(f'/scratch/ssd004/scratch/murdock/diffusion-merge/benchmark/results/{model_name}.json', 'w') as file:
         json.dump(metrics, file)
 

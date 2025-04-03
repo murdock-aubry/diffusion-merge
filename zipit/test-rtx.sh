@@ -4,10 +4,10 @@
 #SBATCH --mem=100G
 #SBATCH --gres=gpu:1
 #SBATCH --time=120
-#SBATCH --job-name=merge-script
+#SBATCH --job-name=finetuning-script
 #SBATCH --output=/scratch/ssd004/scratch/murdock/diffusion-merge/outs/output/slurm-%j.out
 #SBATCH --error=/scratch/ssd004/scratch/murdock/diffusion-merge/outs/error/slurm-%j.err
 
 cd /scratch/ssd004/scratch/murdock/diffusion-merge/zipit
 
-srun python zipit.py
+srun python test.py

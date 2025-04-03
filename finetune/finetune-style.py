@@ -8,6 +8,7 @@ from tqdm.auto import tqdm
 import os
 import gc
 import numpy as np
+import random
 import argparse
 import io
 from PIL import Image
@@ -16,12 +17,13 @@ import base64
 
 parser = argparse.ArgumentParser(description="Specify dataset name for finetuning.")
 parser.add_argument("--data_shard", type=str, required=True, help="Name of the dataset to use for finetuning.")
+parser.add_argument("--data_path", type=str, required=True, help="Path of the dataset to use for finetuning.")
 args = parser.parse_args()
 
 
 
-DATASET_SHARD = args.data_shard
-DATASET_NAME = f"/projects/dynamics/diffusion-tmp/data/train/{DATASET_SHARD}_shard.parquet"
+DATASET_NAME = args.data_shard
+DATASET_PATH = args.data_path
 
 
 
@@ -29,7 +31,7 @@ DATASET_NAME = f"/projects/dynamics/diffusion-tmp/data/train/{DATASET_SHARD}_sha
 
 print("Initializing hyperparameters", flush = True)
 MODEL_NAME = "CompVis/stable-diffusion-v1-4"
-OUTPUT_DIR = f"/projects/dynamics/diffusion-tmp/finetunes/{DATASET_SHARD}"
+OUTPUT_DIR = f"/projects/dynamics/diffusion-tmp/finetunes/{DATASET_NAME}"
 BATCH_SIZE = 5  # Reduce batch size
 GRADIENT_ACCUMULATION_STEPS = 2
 LEARNING_RATE = 1e-5
@@ -49,9 +51,12 @@ class MemoryEfficientPromptImageDataset(Dataset):
 
         # loading pre-split shards based on category name
 
-        
-        self.dataset = load_dataset('parquet', data_files=DATASET_NAME, split=split)["item"]
-        
+        self.dataset = load_dataset(DATASET_PATH, split="train")
+        if len(self.dataset) > 1000:
+            indices = list(range(len(self.dataset)))
+            shuffled_indices = random.Random(42).sample(indices, 1000)
+            self.dataset = self.dataset.select(shuffled_indices)
+            
         self.transform = transforms.Compose([
             transforms.Resize((512, 512)),  # Consistent image size
             transforms.ToTensor(),
@@ -63,11 +68,14 @@ class MemoryEfficientPromptImageDataset(Dataset):
     
     def __getitem__(self, idx):
         item = self.dataset[idx]
-        
-        image = Image.open(io.BytesIO(item["jpg_0"])).convert("RGB")
-        # Apply transformation
+
+        image = item["image"]
         image = self.transform(image)
-        prompt = item["caption"] 
+
+        if DATASET_NAME in ["ghibli"]:
+            prompt = item["caption"] 
+        else:
+            prompt = item["text"] 
 
         return {"prompt": prompt, "pixel_values": image}
 

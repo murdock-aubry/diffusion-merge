@@ -6,7 +6,10 @@
         "electronics" : "electronics_shard.parquet",
         "food" : "food_shard.parquet",
         "text" : "text_shard.parquet",
-        "vehicles" : "vehicles_shard.parquet"
+        "vehicles" : "vehicles_shard.parquet",
+        "ghibli" : "Nechintosh/ghibli",
+        "sketch" : "zoheb/sketch-scene",
+        "pokemon" : "reach-vb/pokemon-blip-captions"
     },
 
     "models" : {
